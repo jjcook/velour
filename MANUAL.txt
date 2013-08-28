@@ -1,0 +1,212 @@
+---------------------------------------------------------------------
+----  VELOUR MANUAL  ------------------------------------------------
+---------------------------------------------------------------------
+
+For Velour's license terms, see LICENSE.txt
+
+Velour's source code is available in open source at:
+  http://github.com/jjcook/velour
+
+
+Velour is a short read de novo assembly tool that enables the single-end
+assembly of gigabase-scale genomes on a single modern commodity workstation.
+For human-scale genomes, less than 32GB of physical machine memory is
+typically required, which is in contrast to other popular assemblers that
+require one to two orders of magnitude more memory in order to perform
+a similar assembly.
+
+Velour avoids the large memory requirement exhibited by other assemblers by
+intelligently but efficiently caching portions of the assembly process on
+disk.  Despite this memory optimization, the solution quality does not suffer
+and remains comparable to other popular assemblers.
+
+TODO: describe single end assembly options, e.g., simple bubble popping
+
+If profiling the memory use of Velour, please note that as input files are
+memory mapped you may observe a false peak memory footprint depending on the
+size of your input read files; for more details, please contact the author.
+
+This work was supported in part by a gift from the Intel corporation,
+NSF CCF-0702501, and NSF CAREER award CCF-0347260.
+
+More information on the algorithms implemented in Velour can be found in:
+
+   Cook, Jeffrey J. 2011. Scaling short read de novo DNA sequence assembly to
+   gigabase genomes. PhD dissertation, University of Illinois at
+   Urbana-Champaign.  http://hdl.handle.net/2142/24291
+
+Please use this reference when citing Velour.
+
+
+***************************************
+** Quick start Guide
+***************************************
+
+Decompress and extract the mini-kmer partition tables in the base directory:
+
+> tar -xjvf velour_minikmer_ptables*
+
+Build the velour binary:
+
+> make
+
+Example of a single-end assembly using a k-mer length of 27, 256 partitions,
+a node k-mer coverage cutoff of 3.0, and intended to be performed in under
+4 GB of memory:
+
+> ./assemble.sh work 27 256 4 reads.fa
+> ./covcutoff.sh work 27 256 4 3.0
+
+
+***************************************
+** Usage Details
+***************************************
+
+******
+** Requirements
+******
+
+Velour may be used on any standard Intel-compatible 64-bit Linux system.  If
+assembling a human-scale genome, approximately 32GB of memory is required if
+single-end assembly with simple bubble popping is used.
+
+******
+** Installation
+******
+
+If you received Velour as a tarball instead of from the git repository, unpack
+the Velour binary tarball and the ptables tarball:
+
+> tar -xjvf velour-0.1.tar.bz2 && tar -xjvf velour-ptables.tar.bz2
+
+If building from source, decompress and extract the mini-kmer partition
+tables in the base directory:
+
+> tar -xjvf velour_minikmer_ptables*
+
+
+******
+** Input Files
+******
+
+Velour currently only supports reads in the FASTA file format.  The set of
+reads files may be explicitly listed on the command line, or they may be
+placed in one or more directories (with no subdirectories) that are specified
+on the command line (examples in the next section).
+
+******
+** Running Velour
+******
+
+Velour performs a single-end assembly in two logical phases.  The first phase
+performs most of the assembly work: partitioning the input and gradually
+recombining the partitions while errors are corrected; the output is an
+unfinished single-end assembly where no node k-mer coverage cutoff has been
+applied.  The second phase then applies a user provided coverage cutoff (and
+re-applies error correction steps to the resulting graph) to complete
+single-end assembly.
+
+Two scripts drive this assembly process.  The first phase of assembly is
+performed by 'assemble.sh' and the second phase by 'covcutoff.sh'.  The
+command lines for each script are provided below.
+
+assemble.sh workDirectory oddKmerLength numPartitions gigabytesOfMemory fastaFilenamesOrDirectories
+
+covcutoff.sh workDirectory oddKmerLength numPartitions gigabytesOfMemory covCutoff
+
+Parameter descriptions:
+
+- workDirectory: a user provided path where all output and temporary files are stored
+
+- oddKmerLength: the k-mer length to use for the assembly.  must be an odd value.
+
+- numPartitions: the number of partitions to use during assembly.  increasing
+  this number decreases the peak memory footprint during the recombination
+  portion of assembly, but does not affect the footprint of the finishing step
+  in assembly.  valid values are 4, 16, 64, 256, and 1024.
+
+- gigabytesOfMemory: the amount of memory to reserve for the assembly.  if
+  this value is below the amount of memory required for assembly, the assembly
+  will proceed more slowly as velour continually re-optimizes its memory use.
+  if the value is larger than is required, it enables Velour to optimize the
+  assembly performance.  please do not specify a value larger than the amount
+  of physical memory in your system.
+
+- fastaFilenamesOrDirectories: one or more filenames and/or directories with
+  input files
+
+- covCutoff: the average node k-mer coverage threshold below which nodes are
+  deleted from the single-end assembly solution.  applying a coverage cutoff
+  significantly untangles the graph and consequently improves the overall
+  assembly length statistics.
+
+******
+** Output Files
+******
+
+- PreGraph: an intermediate single-end assembly output that can be imported
+  directly by the Velvet assembler for higher-quality single-end assembly
+  finishing (if you have sufficient machine memory) and also for pair-end
+  assembly
+
+- nodekmercoverage.txt: a text database of all node k-mer lengths and average
+  node k-mer coverage, for use by the user to determine the coverage cutoff to
+  apply during the second phase of single-end assembly
+
+- contigs.fa: the single-end assembly solution in FASTA format
+
+******
+** Computing Assembled Contig Statistics
+******
+
+A perl script called contig_stats.pl is provided that allows the user to
+compute the contig length statistics for an assembly in FASTA format.
+Optionally, use the '-k' option to specify the k-mer length used during
+assembly to discount the contig lengths when comparing with other select
+assemblers.
+
+> ./contig_stats.pl -k 23 fastFilename
+num_contigs     =     344469
+total_bases     =   12758087
+shortest_contig =          1
+longest_contig  =       5144
+average_length  =         37
+median_length   =          3
+n50_length      =        519
+n50_count       =       6846
+n50_percent     =          1
+n80_length      =        127
+n80_count       =      20650
+n80_percent     =          5
+
+Use the '-m' option to restrict the report to contigs whose length in k-mers
+is greater than or equal to the specified length L.
+
+> ./contig_stats.pl -k 23 -m 100 fastaFilename
+num_contigs     =      22999
+total_bases     =   10471754
+shortest_contig =        100
+longest_contig  =       5144
+average_length  =        455
+median_length   =        320
+n50_length      =        652
+n50_count       =       4880
+n50_percent     =         21
+n80_length      =        311
+n80_count       =      11795
+n80_percent     =         51
+
+
+***************************************
+** Contacting the Authors
+***************************************
+
+For specific questions or requests, you can contact the primary author at the
+following address:
+
+Jeffrey J. Cook <jeffrey.j.cook@gmail.com>
+
+Secondary contact information should your request go unanswered:
+
+Craig Zilles <zilles@illinois.edu>
+
