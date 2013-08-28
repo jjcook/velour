@@ -1,0 +1,25 @@
+#
+# Makefile for test suite
+#
+#
+# This file is part of Velour and is distributed under the University of
+# Illinois Open Source License. See LICENSE.txt for details.
+#
+
+export TESTBASEDIR=$(CURDIR)
+export TESTSCRIPTS=$(TESTBASEDIR)/scripts
+
+.PRECIOUS: Makefile
+.PHONY: default test clean
+
+default:
+	@echo "ERROR: Do not run the test suite directly.  Run 'make check' from the build directory."
+	@exit 1
+
+test:
+	@$(TESTSCRIPTS)/regression.sh
+
+clean:
+	@cd pregraph/stage1-unit && rm -rf test.* && cd ../..
+	@cd pregraph/stage2-synthetic && rm -rf test.* && cd ../..
+

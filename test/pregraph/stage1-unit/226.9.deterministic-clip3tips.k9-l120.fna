@@ -1,0 +1,29 @@
+>kmerLength:9|sequenceLength:120
+CGGAAGT
+CACAGTTTC
+AATCCCACT
+GATCGATGC
+TCTCTACAC
+CATGCCCAA
+AGAAGTGGC
+ACCCAACGC
+TCCGTACCT
+GCCCTCATG
+ATCGAGACG
+ACCTACGCC
+GACTCTTGG
+TAA
+> correct tip begin
+TCCGGAAGTCAC
+> correct tip begin
+TCCGGAAGTC
+> error tip begin
+TTCGGAAGTCAC
+> error tip begin
+TTCGGAAGTC
+> error tip begin
+TGCGGAAGTCAC
+> error tip begin
+TGCGGAAGTC
+> anchor end
+CTCTTGGTAA

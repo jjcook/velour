@@ -1,0 +1,117 @@
+##
+## Makefile to initiate the Velour test suite
+##
+#
+# This file is part of Velour and is distributed under the University of
+# Illinois Open Source License. See LICENSE.txt for details.
+#
+
+.PHONY: check debugcheck checkclean
+.PHONY: checkpart
+.PHONY: checkbucket checkbucket2 checkibucket checkiebucket checkciebucket
+.PHONY: checkflow debugflow benchflow
+
+check: $(VELOUR)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+debugcheck: VELOUR=$(VELOURDEBUG)
+debugcheck: $(VELOURDEBUG)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+checkpart: RUN=${PWD}/scripts/run-partitioning.sh
+checkpart: MINIK=9
+checkpart: PARTS=4
+checkpart: $(VELOUR)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test RUN=$(RUN) MINIK=$(MINIK) PARTS=$(PARTS) ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+checkbucket: RUN=${PWD}/scripts/run-bucket.sh
+checkbucket: MINIK=9
+checkbucket: PARTS=4
+checkbucket: $(VELOUR)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test RUN=$(RUN) MINIK=$(MINIK) PARTS=$(PARTS) ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+checkibucket: RUN=${PWD}/scripts/run-ibucket.sh
+checkibucket: MINIK=9
+checkibucket: PARTS=4
+checkibucket: $(VELOUR)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test RUN=$(RUN) MINIK=$(MINIK) PARTS=$(PARTS) ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+checkiebucket: RUN=${PWD}/scripts/run-iebucket.sh
+checkiebucket: MINIK=9
+checkiebucket: PARTS=4
+checkiebucket: $(VELOUR)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test RUN=$(RUN) MINIK=$(MINIK) PARTS=$(PARTS) ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+checkciebucket: RUN=${PWD}/scripts/run-ciebucket.sh
+checkciebucket: MINIK=18
+checkciebucket: PARTS=4
+checkciebucket: $(VELOUR)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test RUN=$(RUN) MINIK=$(MINIK) PARTS=$(PARTS) ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+checkbucket2: RUN=${PWD}/scripts/run-bucket2.sh
+checkbucket2: MINIK=9
+checkbucket2: PARTS=4
+checkbucket2: $(VELOUR)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test RUN=$(RUN) MINIK=$(MINIK) PARTS=$(PARTS) ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+checkflow: RUN=${PWD}/scripts/run-flow.sh
+checkflow: MINIK=9
+checkflow: PARTS=4
+checkflow: OPTS="-mem 512"
+checkflow: $(VELOUR)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test RUN=$(RUN) MINIK=$(MINIK) PARTS=$(PARTS) OPTS=$(OPTS) ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+debugflow: RUN=${PWD}/scripts/run-flow.sh
+debugflow: MINIK=9
+debugflow: PARTS=4
+debugflow: OPTS="-mem 512"
+debugflow: VELOUR=$(VELOURDEBUG)
+debugflow: $(VELOURDEBUG)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test RUN=$(RUN) MINIK=$(MINIK) PARTS=$(PARTS) OPTS=$(OPTS) ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+benchflow: RUN=${PWD}/scripts/run-flow.sh
+benchflow: MINIK=9
+benchflow: PARTS=4
+benchflow: OPTS="-mem 512"
+benchflow: VELOUR=$(VELOURBENCH)
+benchflow: $(VELOURBENCH)
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) test -C "$(BASEDIR)/test" -f Makefile.test RUN=$(RUN) MINIK=$(MINIK) PARTS=$(PARTS) OPTS=$(OPTS) ; \
+		else echo "ERROR: test suite not present." && exit 1 ; \
+	fi
+
+checkclean:
+	@if [ -d "$(BASEDIR)/test" ] ; then \
+		$(MAKE) clean -C "$(BASEDIR)/test" -f Makefile.test ; \
+	fi
+
