@@ -25,7 +25,12 @@ void report_unrecoverable_error(void)
 void verify_node(KmerNode * node, KmerGraph *hashtable, unsigned kmer_length)
 {
     int double_kmer_length = kmer_length << 1;
-    Kmer mask = (((Kmer)1) << double_kmer_length) - 1;  // a mask with 2*kmer_length bits
+#ifdef LARGE_KMERS
+    Kmer mask;
+    mask.createMask(double_kmer_length);
+#else
+    Kmer mask = (Kmer(1) << double_kmer_length) - 1;
+#endif
     Kmer kmer = node->kmer;
     Kmer rc_kmer = reverseComplement(kmer, kmer_length);
     char rightmost_base = KMER_GET_TAIL_BASE(kmer, kmer_length);
@@ -79,7 +84,12 @@ void
 verify_node_orig(kg_node_t * node, unsigned kmer_length) {
     assert( false && "TODO FIX! REVERSED KMER ENDIANNESS" );
   int double_kmer_length = kmer_length << 1;
-  Kmer mask = (((Kmer)1) << double_kmer_length) - 1;  // a mask with 2*kmer_length bits
+#ifdef LARGE_KMERS
+    Kmer mask;
+    mask.createMask(double_kmer_length);
+#else
+    Kmer mask = (Kmer(1) << double_kmer_length) - 1;
+#endif
   Kmer kmer = node->kmer;
   Kmer rc_kmer = reverseComplement(kmer, kmer_length);
   char leftmost_base = (kmer >> (double_kmer_length - 2)) & 0x3;
@@ -135,7 +145,12 @@ void
 verify_node(kg_node_t * node, unsigned kmer_length) {
     assert( false && "TODO FIX! REVERSED KMER ENDIANNESS" );
   int double_kmer_length = kmer_length << 1;
-  Kmer mask = (((Kmer)1) << double_kmer_length) - 1;  // a mask with 2*kmer_length bits
+#ifdef LARGE_KMERS
+    Kmer mask;
+    mask.createMask(double_kmer_length);
+#else
+    Kmer mask = (Kmer(1) << double_kmer_length) - 1;
+#endif
   Kmer kmer = node->kmer;
   Kmer rc_kmer = reverseComplement(kmer, kmer_length); //  + node->length - 1);
   char leftmost_base = (kmer >> (double_kmer_length - 2)) & 0x3;

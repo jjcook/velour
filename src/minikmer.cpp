@@ -63,7 +63,7 @@ void printMiniKmerGraphAdjacencyStats(void)
 
   for(uintptr_t k=0; k < MINIKMER_GRAPH_SIZE; ++k)
   {
-    if( k == canonicalKmer(k, g__MINIKMER_LENGTH) )
+    if( k == convertKmerToUint64(canonicalKmer(k, g__MINIKMER_LENGTH)) )
       ++ numCanonNodes;
 	else
 		continue;

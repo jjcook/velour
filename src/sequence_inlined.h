@@ -300,8 +300,16 @@ inline void Sequence::PopFront(uint16_t pop_bases)
 
 inline void Sequence::InitializeWithKmer_Unsafe(Kmer kmer, unsigned kmer_length)
 {
+#ifdef LARGE_KMERS
+    uint64_t *words = reinterpret_cast<uint64_t *>(str_);
+    for (unsigned i=0; i < Kmer::kmer_words; ++i)
+    {
+        words[i] = kmer.word[i];
+    }
+#else
     Kmer *words = reinterpret_cast<Kmer *>(str_); // FIXME alignment -- use memcpy?
     words[0] = kmer;
+#endif
     length_ = kmer_length;
 }
 
@@ -333,6 +341,21 @@ inline Kmer Sequence::GetKmer(unsigned offset, unsigned kmer_length) const
 {
     assert( offset <= length_ - kmer_length );
 
+#ifdef LARGE_KMERS
+    const uint64_t *words = reinterpret_cast<const uint64_t *>(str_);
+
+    unsigned wordIndex = ComputeWordIndex<uint64_t>(offset);
+    unsigned wordBitOffset = ComputeWordBitOffset<uint64_t>(offset);
+
+    Kmer kmerA;
+    for(unsigned i=0; i < Kmer::kmer_words; ++i)
+    {
+        kmerA.word[i] = words[wordIndex + i] >> wordBitOffset;
+        if (wordBitOffset > 0)
+            kmerA.word[i] |= words[wordIndex + i + 1] << (64 - wordBitOffset);
+    }
+    kmerA = maskKmer(kmerA, kmer_length);
+#else
     const Kmer *words = reinterpret_cast<const Kmer *>(str_); // FIXME alignment -- use memcpy?
 
     unsigned wordIndex0 = ComputeWordIndex<Kmer>(offset);
@@ -349,12 +372,12 @@ inline Kmer Sequence::GetKmer(unsigned offset, unsigned kmer_length) const
         Kmer word1 = words[wordIndex1] << ((sizeof(Kmer) * 8) - wordBitOffset);
         kmerA = maskKmer((word0 | word1), kmer_length);
     }
+#endif
 
 #ifdef VERIFY
-    Kmer kmerB = 0;
+    Kmer kmerB(0);
     for (unsigned i=0 ; i < kmer_length ; ++ i) {
-        unsigned shamt = i * 2;
-        kmerB |= static_cast<Kmer>(GetBase_Unsafe(i+offset)) << shamt;
+        kmerB = setNucleotide(kmerB, i, GetBase_Unsafe(i+offset));
     }
     assert( kmerA == kmerB );
 #endif // VERIFY

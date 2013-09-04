@@ -70,6 +70,7 @@ get_adjacency(int i, int j) {
 #ifdef MINIKMER_MODE
 uint64_t greedyHash(Kmer fullKmer) { return computeMiniKmer(fullKmer, g__FULLKMER_LENGTH, g__MINIKMER_LENGTH >> 1); }
 #else
+#error // not fixed for LARGE_KMERS
 uint64_t
 greedyHash(Kmer fullKmer) {
   uint64_t hash = fullKmer ^ (fullKmer >> 21) ^ (fullKmer << 7);

@@ -346,7 +346,12 @@ SeqNode* SeqGraph::atomic_findNode(const Kmer kmer, bool moving_right, bool* sen
 static Kmer computeNextKmer(const SeqNode *node, Nucleotide next_base, bool moving_right)
 {
     int double_kmer_length = g__FULLKMER_LENGTH << 1;
-    Kmer mask = (((Kmer)1) << double_kmer_length) - 1;  // a mask with 2*kmer_length bits
+#ifdef LARGE_KMERS
+    Kmer mask;
+    mask.createMask(double_kmer_length);
+#else
+    Kmer mask = (Kmer(1) << double_kmer_length) - 1;
+#endif
 
     Kmer next_kmer; 
     if (moving_right) {

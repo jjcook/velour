@@ -95,6 +95,7 @@ RETVAL=$?
 set -o errexit
 if [ $RETVAL -ne 0 ] ; then
   echo "Velour partitioner failed.  Exit code $RETVAL." >&2
+  tail -n 4 "$WORK/partitioning.log" >&2
   exit $RETVAL
 fi
 

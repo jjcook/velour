@@ -64,7 +64,7 @@ colorAndQueueNeighbors(Color color, Kmer seed, kmer_worklist_t *worklist)
   // some direction
   for(int i=0; i < 4; ++i)
   {
-    Kmer neighbor = maskKmer((seed << 2) | i, g__MINIKMER_LENGTH);
+    Kmer neighbor = maskKmer((seed << 2) | (Kmer)i, g__MINIKMER_LENGTH);
     Kmer canon = canonicalKmer(neighbor, g__MINIKMER_LENGTH);
 
     if( isMiniKmerUncolored(canon) )

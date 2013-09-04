@@ -22,7 +22,7 @@ void gdb_print_kmer(Kmer kmer, unsigned kmer_length)
 void fprint_kmer(Kmer kmer, unsigned kmer_length, FILE *file)
 {
     for (unsigned i = 0 ; i < kmer_length ; ++ i) {
-        Nucleotide base = (kmer >> (i << 1)) & 0x3;
+        Nucleotide base = getNucleotide(kmer, i);
         fputc(CHAR_BASE_MAP[base], file);
     }
 }

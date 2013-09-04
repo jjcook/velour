@@ -98,7 +98,7 @@ printUsage() {
   puts("Usage:");
   puts("./velour directory kmer_length <options> {[-file_format][-read_type] filenames}");
   puts("     directory             = directory name for output files");
-  puts("     kmer_length           = odd integer (if even, it will be decremented) <= 31 (if above, will be reduced)");
+  puts("     kmer_length           = odd integer (if even, it will be decremented)");
   puts("     file_format           = fasta | fastq | fasta.gz | fastq.gz | eland | gerald ");
   puts("     read_type             = short | shortPaired | short2 | shortPaired2 | long");  // FIXME: we don't use this
   puts("     filenames             = name of input files or directory");
@@ -124,16 +124,17 @@ unsigned parseUnsigned(char *h); // forward decl
 
 void initializePartitionIndexFromInputFilename(file_object_vector *file_objects); // forward decl
 
-// parse kmer_length from string and correct to make odd and less than 32 bases long
+// parse kmer_length from string and correct to make odd
 static inline unsigned
 getKmerLength(char *h)
 {
   unsigned kmer_length = parseUnsigned(h);
 
-  if (kmer_length > 31) {
-    fprintf(stderr,"WARNING: Velour can't handle k-mers as long as %u!  Using k-mer length of 31 instead.\n",
-	   kmer_length);
-    kmer_length = 31;
+  if (kmer_length > MAXKMERLENGTH) {
+    fprintf(stderr,"ERROR: k-mer length of %u is larger than MAXKMERLENGTH of %u\n"
+            "       please recompile and increase MAXKMERLENGTH in Makefile.\n",
+	   kmer_length, MAXKMERLENGTH);
+    exit(EXIT_FAILURE);
   } else if (kmer_length % 2 == 0) {
     fprintf(stderr,"WARNING: Velour can't work with even length k-mers, such as %u.  Using k-mer length of %u instead.\n",
 	   kmer_length, kmer_length - 1);

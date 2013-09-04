@@ -61,19 +61,21 @@ static inline Kmer computeMiniKmer(Kmer fullKmer, unsigned fullKmer_length, unsi
 
 static inline Color getMiniKmerColor(Kmer miniKmer)
 {
+  uint64_t miniKmerInt = convertKmerToUint64(miniKmer);
   assert( miniKmerGraph != NULL );
-  assert( miniKmer < MINIKMER_GRAPH_SIZE );
-  return miniKmerGraph[miniKmer].color + (COLORMIN == 0 ? 1 : 0); // jjcook FIXME: hack!
+  assert( miniKmerInt < MINIKMER_GRAPH_SIZE );
+  return miniKmerGraph[miniKmerInt].color + (COLORMIN == 0 ? 1 : 0); // jjcook FIXME: hack!
 }
 
 static inline void setMiniKmerColor(Kmer miniKmer, Color newColor)
 {
+  uint64_t miniKmerInt = convertKmerToUint64(miniKmer);
   assert( miniKmerGraph != NULL );
-  assert( miniKmer < MINIKMER_GRAPH_SIZE );
+  assert( miniKmerInt < MINIKMER_GRAPH_SIZE );
   //assert( getMiniKmerColor(miniKmer) == 0 );
   assert( newColor >= COLORMIN );
   assert( newColor <= COLORMAX );
-  miniKmerGraph[miniKmer].color = newColor;
+  miniKmerGraph[miniKmerInt].color = newColor;
 }
 
 static inline bool isMiniKmerColored(Kmer miniKmer) { return (getMiniKmerColor(miniKmer) != 0); }

@@ -44,11 +44,15 @@ Please use this reference when citing Velour.
 
 Decompress and extract the mini-kmer partition tables in the base directory:
 
-> tar -xjvf velour_minikmer_ptables*
+> ls velour_minikmer_ptables*.tar.bz2 | xargs -n 1 tar xjvf
 
-Build the velour binary:
+Build the velour binary, by default for maximum k-mer length of 31:
 
 > make
+
+OR build for arbitrary maximum k-mer length:
+
+> make 'MAXKMERLENGTH=63'
 
 Example of a single-end assembly using a k-mer length of 27, 256 partitions,
 a node k-mer coverage cutoff of 3.0, and intended to be performed in under
@@ -82,7 +86,7 @@ the Velour binary tarball and the ptables tarball:
 If building from source, decompress and extract the mini-kmer partition
 tables in the base directory:
 
-> tar -xjvf velour_minikmer_ptables*
+> ls velour_minikmer_ptables*.tar.bz2 | xargs -n 1 tar xjvf
 
 
 ******
@@ -196,6 +200,15 @@ n80_length      =        311
 n80_count       =      11795
 n80_percent     =         51
 
+******
+** Quirks and Other Notes
+******
+
+- Assemblies using the same k-mer length but different MAXKMERLENGTH values
+  will produce identical assemblies but the nodes in the contigs.fa or
+  PreGraph file may end up in a different order.  For sanity, you can use this
+  regression test script to validate logical equivalence:
+    tests/scripts/compare-pregraph-simple.py pregraph1 pregraph2
 
 ***************************************
 ** Contacting the Authors

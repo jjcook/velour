@@ -147,10 +147,16 @@ void sequence_process_kmers(Sequence *seq, unsigned kmer_length, T& functor)
     functor(kmer, canonical_kmer, sense_reversed, 0, 0, kmer_length, true, (kmer_length == seq_length)); // is first
 
     unsigned double_kmer_length = kmer_length << 1;
-    Kmer mask = (((Kmer)1) << double_kmer_length) - 1;
+
+#ifdef LARGE_KMERS
+    Kmer mask;
+    mask.createMask(double_kmer_length);
+#else
+    Kmer mask = (Kmer(1) << double_kmer_length) - 1;
+#endif
 
     for(unsigned i=kmer_length ; i < (seq_length - 1) ; ++i) {
-        Nucleotide last_base = kmer & 0x3;
+        Nucleotide last_base = getNucleotide(kmer,0);
         Nucleotide base = seq->GetBase(i);
         kmer = KMER_APPEND(kmer, base, double_kmer_length);
         rc_kmer = KMER_PREPEND(rc_kmer, COMPLEMENT(base), double_kmer_length, mask);
@@ -161,7 +167,7 @@ void sequence_process_kmers(Sequence *seq, unsigned kmer_length, T& functor)
     }
 
     if (kmer_length < seq_length) {
-        Nucleotide last_base = kmer & 0x3;
+        Nucleotide last_base = getNucleotide(kmer,0);
         Nucleotide base = seq->GetBase(seq_length-1);
         kmer = KMER_APPEND(kmer, base, double_kmer_length);
         rc_kmer = KMER_PREPEND(rc_kmer, COMPLEMENT(base), double_kmer_length, mask);

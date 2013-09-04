@@ -218,7 +218,12 @@ inline KmerNode* KmerGraph::findNextNode(const KmerNode *node, Nucleotide base, 
 {
     unsigned double_kmer_length = g__FULLKMER_LENGTH << 1;
     Kmer next_kmer;
+#ifdef LARGE_KMERS
+    Kmer mask;
+    mask.createMask(double_kmer_length);
+#else
     Kmer mask = (Kmer(1) << double_kmer_length) - 1;
+#endif
     if (moving_right) {
         next_kmer = KMER_APPEND(node->kmer, base, double_kmer_length);
     } else {

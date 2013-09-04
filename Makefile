@@ -22,6 +22,7 @@
 ##     localhost$ cd builddir && make -C basedir
 ##
 
+MAXKMERLENGTH=31
 
 OSNAME=$(shell uname -s)
 ifeq ($(OSNAME),Darwin)
@@ -149,6 +150,7 @@ endif
 ##     to override: make CODEPATH="-DFOO"
 ##   to supplement: make ADD_CODEPATH="-DBAR"
 ifndef CODEPATH
+CODEPATH += -DMAXKMERLENGTH=$(MAXKMERLENGTH)
 CODEPATH += -DSMALL_NODES
 #CODEPATH += -DUNIQUE
 #CODEPATH += -DCOLOR_8BIT
@@ -294,10 +296,22 @@ default: opt
 all: bench debug opt
 
 bench: $(BENCH_BINARIES)
+	@if [ $(MAXKMERLENGTH) -gt 31 ] ; then \
+		echo -n "NOTE: MAXKMERLENGTH = $(MAXKMERLENGTH) > 31, using large-kmer data structure." ; \
+		echo "  Velour run time time and memory use will be impacted." ; \
+	 fi
 
 debug: $(DEBUG_BINARIES)
+	@if [ $(MAXKMERLENGTH) -gt 31 ] ; then \
+		echo -n "NOTE: MAXKMERLENGTH = $(MAXKMERLENGTH) > 31, using large-kmer data structure." ; \
+		echo "  Velour run time time and memory use will be impacted." ; \
+	 fi
 
 opt: $(OPT_BINARIES)
+	@if [ $(MAXKMERLENGTH) -gt 31 ] ; then \
+		echo -n "NOTE: MAXKMERLENGTH = $(MAXKMERLENGTH) > 31, using large-kmer data structure." ; \
+		echo "  Velour run time time and memory use will be impacted." ; \
+	 fi
 
 $(notdir $(BENCH_BINARIES)):
 	$(MAKE) $(BINDIR)/$@

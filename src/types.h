@@ -334,16 +334,16 @@ extern double      g__COVCUTOFF_MAX;
 extern bool        g__BUBBLE_POPPING;
 
 #define KMER_APPEND(kmer, base, double_kmer_length)  \
-  (((kmer) >> 2) | (((Kmer)base) << ((double_kmer_length) - 2)))
+  (((kmer) >> 2) | (((Kmer)(base)) << ((double_kmer_length) - 2)))
 
 #define KMER_PREPEND(kmer, base, double_kmer_length, mask)  \
-  ((((kmer) << 2) | (base)) & (mask))
+  ((((kmer) << 2) | ((Kmer)(base))) & (mask))
 
 #define KMER_GET_HEAD_BASE(kmer, kmer_length) \
-  (kmer & 0x3)
+    getNucleotide(kmer, 0)
 
 #define KMER_GET_TAIL_BASE(kmer, kmer_length) \
-  (kmer >> ((kmer_length << 1)-2))
+    getNucleotide(kmer, kmer_length - 1)
 
 // -----
 // -- allocators.cpp

@@ -106,7 +106,7 @@ void convertSequenceToKmersToPrenodes(char *seq, KmerGraph *hashtable, int kmer_
 void
 convertSequenceToKmersToPrenodes(char *seq, kg_node_t **hashtable, int kmer_length) {
     assert( false && "TODO FIX! REVERSED KMER ENDIANNESS" );
-  Kmer kmer = 0, anti_kmer = 0;
+  Kmer kmer(0), anti_kmer(0);
   int i;
 
   // read first Kmer
@@ -122,7 +122,7 @@ convertSequenceToKmersToPrenodes(char *seq, kg_node_t **hashtable, int kmer_leng
   }
 
   int double_kmer_length = kmer_length << 1;
-  Kmer mask = (((Kmer)1) << double_kmer_length) - 1;  // a mask with 2*kmer_length bits
+#error  Kmer mask = (((Kmer)1) << double_kmer_length) - 1;  // a mask with 2*kmer_length bits
 
   // lookup first Kmer to get first node
   Kmer rc_kmer = (anti_kmer >> (64 - double_kmer_length));

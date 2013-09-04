@@ -22,7 +22,6 @@ VELOUR IMPLEMENTATION DETAILS AND DISCLAIMERS
 
 === FUTURE FEATURE IDEAS ===
 
-- large k-mer support (greater than 31)
 - large sequence node support, currently limited to 65535 bases
 
 === FUTURE OPTIMIZATION IDEAS ===
