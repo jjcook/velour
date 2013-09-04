@@ -182,7 +182,7 @@ inline void Sequence::PreparePrepend_Unsafe(uint16_t insert_length)
         }
     } else if (targetBitOffset > sourceBitOffset) {
         unsigned shamt = targetBitOffset - sourceBitOffset;
-        unsigned anti_shamt = (sizeof(uintptr_t) * 8) - shamt;
+        unsigned anti_shamt = (sizeof(uintptr_t) * 8) - shamt; // ok for shift below, is always < 64
 
         for ( ; sourceWordIndex > 0 ; --sourceWordIndex, --targetWordIndex ) {
             words[targetWordIndex] = (words[sourceWordIndex] << shamt) | (words[sourceWordIndex-1] >> anti_shamt);
@@ -191,7 +191,7 @@ inline void Sequence::PreparePrepend_Unsafe(uint16_t insert_length)
     } else if (targetBitOffset < sourceBitOffset) {
         assert( targetWordIndex > sourceWordIndex );
         unsigned shamt = sourceBitOffset - targetBitOffset;
-        unsigned anti_shamt = (sizeof(uintptr_t) * 8) - shamt;
+        unsigned anti_shamt = (sizeof(uintptr_t) * 8) - shamt; // ok for shift below, is always < 64
 
         words[targetWordIndex] = (words[sourceWordIndex] >> shamt);
         --targetWordIndex;
@@ -276,7 +276,8 @@ inline void Sequence::PopFront(uint16_t pop_bases)
     unsigned targetWordIndex = 0;
 
     for ( ; sourceWordIndex < limitSourceWordIndex ; ++sourceWordIndex, ++targetWordIndex ) {
-        words[targetWordIndex] = (words[sourceWordIndex] >> shamt) | (words[sourceWordIndex+1] << anti_shamt);
+        words[targetWordIndex] = (words[sourceWordIndex] >> shamt);
+        if(anti_shamt < 64) words[targetWordIndex] |= (words[sourceWordIndex+1] << anti_shamt);
     }
     words[targetWordIndex] = (words[sourceWordIndex] >> shamt);
 
