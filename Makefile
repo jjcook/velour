@@ -155,6 +155,7 @@ CODEPATH += -DSMALL_NODES
 #CODEPATH += -DUNIQUE
 #CODEPATH += -DCOLOR_8BIT
 #CODEPATH += -DVELOUR_TBB
+#CODEPATH += -DVELOUR_TBB -DTBB_USE_DEBUG
 #CODEPATH += -DUSE_TBB_ALLOC
 #CODEPATH += -DUSE_LIBC_ALLOC
 #CODEPATH += -DVERIFY
@@ -188,9 +189,9 @@ ifneq ($(CODEPATH),)
 endif
 
 ifneq ($(findstring TBB,$(CODEPATH)),)
-BENCH_LDFLAGS += -ltbb -ltbbmalloc_proxy -ltbbmalloc
-OPT_LDFLAGS   += -ltbb -ltbbmalloc_proxy -ltbbmalloc
-DEBUG_LDFLAGS += -ltbb_debug -ltbbmalloc_proxy_debug -ltbbmalloc_debug
+BENCH_LDFLAGS += -ltbb -ltbbmalloc_proxy -ltbbmalloc -lrt
+OPT_LDFLAGS   += -ltbb -ltbbmalloc_proxy -ltbbmalloc -lrt
+DEBUG_LDFLAGS += -ltbb_debug -ltbbmalloc_proxy_debug -ltbbmalloc_debug -lrt
 endif
 
 ifneq ($(findstring ITT,$(CODEPATH)),)

@@ -38,8 +38,8 @@ class KmerGraph {
 
     void PrepareForMajorGarbageCollect(void);
 
-  private:
     typedef uintptr_t hash_index_t;
+  private:
     hash_index_t hash(const Kmer) const;
 
   public:

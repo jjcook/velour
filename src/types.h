@@ -57,6 +57,7 @@
 #include <vector>
 
 #ifdef VELOUR_TBB
+#  include <tbb/atomic.h>
 #  include <tbb/blocked_range.h>
 #  include <tbb/cache_aligned_allocator.h>
 #  include <tbb/concurrent_vector.h>
@@ -81,8 +82,6 @@ T memberType( T C::* ) ;
 # else gcc
 # define DECLARE_ALIGNED( type, var, n ) type var __attribute__((aligned(n)))
 # endif*/
-
-#include "atomics.h"
 
 #ifdef VELOUR_TBB
 #  define ATOMIZE(x) (*(reinterpret_cast< tbb::atomic<typeof((x))> * >(&(x))))
