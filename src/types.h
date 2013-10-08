@@ -61,6 +61,7 @@
 #  include <tbb/blocked_range.h>
 #  include <tbb/cache_aligned_allocator.h>
 #  include <tbb/concurrent_vector.h>
+#  include <tbb/mutex.h>
 #  include <tbb/parallel_for.h>
 #  include <tbb/pipeline.h>
 #  include <tbb/queuing_mutex.h>
@@ -91,6 +92,12 @@ T memberType( T C::* ) ;
 
 #define ATOMIC_LOAD(x) ATOMIZE((x))
 #define ATOMIC_STORE(x) ATOMIZE((x))
+
+#ifdef VELOUR_TBB
+#  define ATOMIC_ADD(x, y) ATOMIZE(x).fetch_and_add(y)
+#else
+#  define ATOMIC_ADD(x, y) ((x) += (y))
+#endif
 
 #ifdef VELOUR_TBB
 #  define PACKED

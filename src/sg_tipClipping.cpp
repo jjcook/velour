@@ -30,16 +30,6 @@ static uintptr_t NODES_DEALLOCATED = 0;
 static uintptr_t DISCONNECTED_CHUNKS = 0;
 static uintptr_t BOUNDARY_CUTS = 0;
 
-static int REMOVE_NOW_VALUE = 2;
-static int REMOVE_NEXT_VALUE = 2; // 4;
-
-static void 
-flip_to_remove_value() {
-  int temp = REMOVE_NOW_VALUE;
-  REMOVE_NOW_VALUE = REMOVE_NEXT_VALUE;
-  REMOVE_NEXT_VALUE = temp;
-}
-
 // TODO: small nodes vs large nodes
 
 // we know that this "node" is a node that has either no neighbors on
@@ -340,10 +330,6 @@ void sg_remove_tips(SeqGraph *graph, bool silent)
         }
 
         ++pass;
-
-#ifndef SMALL_PRENODES
-	    flip_to_remove_value();
-#endif
     }
 }
 
@@ -374,10 +360,6 @@ void sg_nodelist_remove_tips(SeqGraph *graph, bool silent, flow_nodelist_t *node
         }
 
         ++pass;
-
-#ifndef SMALL_PRENODES
-	    flip_to_remove_value();
-#endif
     }
 }
 
@@ -409,10 +391,6 @@ void sg_parallel_nodelist_remove_tips(SeqGraph *graph, bool silent, flow_nodelis
         }
 
         ++pass;
-
-#ifndef SMALL_PRENODES
-	    flip_to_remove_value();
-#endif
     }
 }
 #endif // VELOUR_TBB

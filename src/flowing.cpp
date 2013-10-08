@@ -522,7 +522,7 @@ static void flow_private_graph(SeqGraph *private_sgraph, SeqGraph *resident_sgra
     private_sgraph->verify(true);
 #endif
 
-    p__preRedistributionSequenceNodes += private_sgraph->node_count;
+    ATOMIC_ADD(p__preRedistributionSequenceNodes,private_sgraph->node_count);
 
     /*
     struct lambda1 {

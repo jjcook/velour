@@ -205,7 +205,7 @@ struct lambda_split {
             component.nodes_.pop_back();
 
             component_bytes += node->emitToFile(targetBucket, BUCKET);
-            ++(*targetBucketCounter);
+            ATOMIC_ADD(*targetBucketCounter,1);
 
             //if (selfBucket == NULL) { // delete emitted nodes when incremental emittal
             setNodeDead<SeqNode>(node); // causes node to be removed from graph and deallocated by the graph iterator

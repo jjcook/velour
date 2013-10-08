@@ -278,7 +278,7 @@ struct lambda_slice_transform_others {
             }
 
             if (sliced) {
-                ++ g__SLICE2_NODE_COUNT; // FIXME counting correctly?
+                ATOMIC_ADD(g__SLICE2_NODE_COUNT,1); // FIXME counting correctly?
             }
         }
     }
