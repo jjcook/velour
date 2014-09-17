@@ -11,6 +11,21 @@
 # Illinois Open Source License. See LICENSE.txt for details.
 #
 
+# NOTE: Only uncomment (define) the NTHREADS variable if Velour was compiled with TBB threading support
+# Optional value: specify maximum number of threads; default behavior is for TBB to choose
+#NTHREADS=
+
+#KEEP_ALL_INTERMEDIATE_FILES=true
+#KEEP_PARTITIONED_SUBSEQUENCES=true
+
+#RETRY=true
+#RESTART=1
+
+if [[ ${NTHREADS+_} ]] ; then
+    RETRY_NTHREADS=1
+    #RETRY_NTHREADS=$NTHREADS
+fi
+
 set -o errexit
 set -o nounset
 
@@ -64,23 +79,52 @@ fi
 set -o nounset
 
 set +o nounset
+if [ -z "$KEEP_ALL_INTERMEDIATE_FILES" ] ; then
+    KEEP_ALL_INTERMEDIATE_FILES=""
+fi
+if [ -z "$KEEP_PARTITIONED_SUBSEQUENCES" ] ; then
+    KEEP_PARTITIONED_SUBSEQUENCES=""
+fi
 if [ -z "$RETRY" ] ; then
     RETRY=""
+fi
+if [ -z "$RESTART" ] ; then
+    RESTART=""
 fi
 set -o nounset
 
 VELOUR_ROOT=$(dirname $(readlink -f $0))
 VELOUR=$VELOUR_ROOT/velour
 
+set +o nounset
+if [ -z "$NTHREADS" ] ; then
+    THR=""
+else
+    THR="-thr $NTHREADS"
+fi
+set -o nounset
+
 if [ ! -d "$VELOUR_ROOT/minikmer_ptables" ] ; then
     echo "User Error: please install the mini-kmer tables in '$VELOUR_ROOT/minikmer_ptables'" >&2
     exit 1
 fi
 
-if [ -d "$WORK" ] ; then
+if [ -n "$RETRY" ] ; then
+    echo "VELOUR: RETRY is enabled. Warning: retry can infinite loop if failure is not transient."
+fi
+if [ -n "$RESTART" ] ; then
+    echo "VELOUR: RESTART=$RESTART  Partitioning skipped and flowing restarted at partition $RESTART."
+fi
+
+if [ -z "$RESTART" -a -d "$WORK" ] ; then
+    echo "VELOUR:  Removing previous assembly in directory '$WORK'"
     rm -rf "$WORK/work"
     rm -f "$WORK/*.log"
     rm -f "$WORK/*.txt"
+    rm -f "$WORK/SUCCESS"
+fi
+
+if [ -n "$RESTART" ] ; then
     rm -f "$WORK/SUCCESS"
 fi
 
@@ -88,22 +132,46 @@ mkdir -p "$WORK/work"
 
 #echo "VELOUR: desired maximum physical memory use is $VELOUR_MEMORY gigabytes"
 
-echo "VELOUR: Partitioning input $VELOUR_PARTITIONS ways..."
-set +o errexit
-$VELOUR "$WORK/work" $FULLK $OPTS -part $VELOUR_PARTITIONS $MINIK $INPUT >& "$WORK/partitioning.log"
-RETVAL=$?
-set -o errexit
-if [ $RETVAL -ne 0 ] ; then
-  echo "Velour partitioner failed.  Exit code $RETVAL." >&2
-  tail -n 4 "$WORK/partitioning.log" >&2
-  exit $RETVAL
+if [ -z "$RESTART" ] ; then
+    echo "VELOUR: Partitioning input $VELOUR_PARTITIONS ways..."
+    set +o errexit
+    $VELOUR "$WORK/work" $FULLK $OPTS $THR -part $VELOUR_PARTITIONS $MINIK $INPUT >& "$WORK/partitioning.log"
+    RETVAL=$?
+    set -o errexit
+    if [ $RETVAL -ne 0 ] ; then
+        echo "Velour partitioner failed.  Exit code $RETVAL." >&2
+        tail -n 4 "$WORK/partitioning.log" >&2
+        exit $RETVAL
+    fi
 fi
 
 # get number of actual partitions created
 VELOUR_PARTITIONS=`cat "$WORK/work/common.partitions"`
 
+if [ "$RESTART" -gt $VELOUR_PARTITIONS ] ; then
+    echo "VELOUR: ERROR, RESTART=$RESTART is larger than the maximum partition index $VELOUR_PARTITIONS." >&2
+    exit 1
+fi
+
+# if restarting, delete stale inbox buckets
+if [ -n "$RESTART" ] ; then
+    echo "VELOUR: Restarting, deleting stale inbox buckets..."
+    for ((p=$RESTART; p <=$VELOUR_PARTITIONS; p++)) ; do
+        rm -f "$WORK/work/FinalBucket-from-$p.bucket"
+        for ((i=($p+1) ; i <=$VELOUR_PARTITIONS; i++)) ; do
+            rm -f "$WORK/work/inbox-for-$i/InboxBucket-from-$p.bucket"
+        done
+    done
+fi
+
+if [ -n "$RESTART" ] ; then
+    START_INDEX=$RESTART
+else
+    START_INDEX=1
+fi
+
 echo "VELOUR: Flowing each partition..."
-for ((p=1; p <=$VELOUR_PARTITIONS; p++)) ; do
+for ((p=$START_INDEX; p <=$VELOUR_PARTITIONS; p++)) ; do
 
   while true ; do
 
@@ -115,12 +183,12 @@ for ((p=1; p <=$VELOUR_PARTITIONS; p++)) ; do
         INBOXES="${INBOXES} ${NEXT_INBOX}"
     done
     set +o errexit
-    $VELOUR "$WORK/work" $FULLK $OPTS -flow $VELOUR_PARTITIONS "$WORK/work/Subsequences-$p.loom" -bucket $INBOXES >& "$WORK/flowing-$p.log"
+    $VELOUR "$WORK/work" $FULLK $OPTS $THR -flow $VELOUR_PARTITIONS "$WORK/work/Subsequences-$p.loom" -bucket $INBOXES >& "$WORK/flowing-$p.log"
     RETVAL=$?
     set -o errexit
   else
     set +o errexit
-    $VELOUR "$WORK/work" $FULLK $OPTS -flow $VELOUR_PARTITIONS "$WORK/work/Subsequences-$p.loom" >& "$WORK/flowing-$p.log"
+    $VELOUR "$WORK/work" $FULLK $OPTS $THR -flow $VELOUR_PARTITIONS "$WORK/work/Subsequences-$p.loom" >& "$WORK/flowing-$p.log"
     RETVAL=$?
     set -o errexit
   fi
@@ -129,14 +197,29 @@ for ((p=1; p <=$VELOUR_PARTITIONS; p++)) ; do
     if [ -z "$RETRY" ] ; then
         exit $RETVAL
     fi
+    if [[ ${NTHREADS+_} ]] ; then
+        THR="-thr $RETRY_NTHREADS"
+    fi
   else
+    if [[ ${NTHREADS+_} ]] ; then
+        if [ -n "$NTHREADS" ] ; then
+            THR="-thr $NTHREADS"
+        else
+            THR=""
+        fi
+    fi
     break # success, don't retry
   fi
 
   done # end while loop
 
   # flowing success for partition.  delete inputs.
-  rm -f "$WORK/work/Subsequences-$p.loom"  $INBOXES
+  if [ -z "$KEEP_ALL_INTERMEDIATE_FILES" -a -z "$KEEP_PARTITIONED_SUBSEQUENCES" ] ; then
+    rm -f "$WORK/work/Subsequences-$p.loom"
+  fi
+  if [ -z "$KEEP_ALL_INTERMEDIATE_FILES" ] ; then
+    rm -f $INBOXES
+  fi
 done
 
 echo "VELOUR: Finishing single-end assembly, with no coverage cutoff..."
@@ -146,8 +229,8 @@ for ((p=1; p <= $VELOUR_PARTITIONS; p++)) ; do
   FINALS="${FINALS} ${NEXT_FINAL}"
 done
 set +o errexit
-#$VELOUR "$WORK/work" $FULLK $OPTS -bubble_removal -quilt -bucket $FINALS >& $WORK/nocovcutoff.log
-$VELOUR "$WORK/work" $FULLK $OPTS -quilt -bucket $FINALS >& "$WORK/nocovcutoff.log"
+#$VELOUR "$WORK/work" $FULLK $OPTS $THR -bubble_removal -quilt -bucket $FINALS >& $WORK/nocovcutoff.log
+$VELOUR "$WORK/work" $FULLK $OPTS $THR -quilt -bucket $FINALS >& "$WORK/nocovcutoff.log"
 RETVAL=$?
 set -o errexit
 if [ $RETVAL -ne 0 ] ; then
@@ -172,8 +255,10 @@ echo "VELOUR: Computing single-end assembly statistics, min contig length of 100
 $VELOUR_ROOT/contig_stats.pl -k $FULLK -m 100 "$WORK/PreGraph"
 
 # finishing success.  delete final buckets.
-#rm -f "$WORK"/work/FinalBucket-from-*.bucket
-rmdir "$WORK"/work/inbox-for-*
+if [ -z "$KEEP_ALL_INTERMEDIATE_FILES" ] ; then
+    #rm -f "$WORK"/work/FinalBucket-from-*.bucket
+    rmdir "$WORK"/work/inbox-for-*
+fi
 
 echo "VELOUR: Done."
 
