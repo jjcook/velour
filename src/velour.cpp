@@ -70,30 +70,24 @@ class thread_index_observer : public tbb::task_scheduler_observer
 
 static bool p__CLOBBER_WORK_DIRECTORY = true;
 
-// TODO: make these private variables
-//
-bool        g__SINGLEPASS           = true;  // default: directly emit pregraph
-char *      g__PREGRAPH_FILENAME    = NULL;
+static bool        p__SINGLEPASS           = true;  // default: directly emit pregraph
+static char *      p__PREGRAPH_FILENAME    = NULL;
 
-bool        g__PGPART               = false;
-bool        g__PGDIST               = false;
-unsigned    g__PGDIST_PARTITIONS    = 0;
-unsigned    g__PGDIST_FILTER        = 0;
+static bool        p__PGPART               = false;
+static bool        p__PGDIST               = false;
+unsigned           g__PGDIST_PARTITIONS    = 0;
+unsigned           g__PGDIST_FILTER        = 0;
 
-bool        g__LOOMING              = false;
-bool        g__SPLIT                = false;
-bool        g__ISPLIT               = false;
-bool        g__IESPLIT              = false;
-bool        g__CIESPLIT             = false;
-bool        g__QUILTING             = false;
-bool        g__FLOW                 = false;
+static bool        p__LOOMING              = false;
+static bool        p__QUILTING             = false;
+static bool        p__FLOW                 = false;
 
 //
 // static functions
 //
 
-// Print out program usage information 
-static void 
+// Print out program usage information
+static void
 printUsage() {
   puts("Usage:");
   puts("./velour directory kmer_length <options> {[-file_format][-read_type] filenames}");
@@ -112,6 +106,7 @@ printUsage() {
   puts("         minikmer_length                  = odd integer <= kmer_length");
   puts("       -noemit                            = don't emit loom files (just emit statistics)");
   puts("    -loom");
+  puts("    -flow");
   puts("    -quilt");
   puts("    -break");
   puts("");
@@ -124,26 +119,24 @@ unsigned parseUnsigned(char *h); // forward decl
 
 void initializePartitionIndexFromInputFilename(file_object_vector *file_objects); // forward decl
 
-// parse kmer_length from string and correct to make odd
+// parse kmer_length from string
 static inline unsigned
 getKmerLength(char *h)
 {
-  unsigned kmer_length = parseUnsigned(h);
+    unsigned kmer_length = parseUnsigned(h);
 
-  if (kmer_length > MAXKMERLENGTH) {
-    fprintf(stderr,"ERROR: k-mer length of %u is larger than MAXKMERLENGTH of %u\n"
-            "       please recompile and increase MAXKMERLENGTH in Makefile.\n",
-	   kmer_length, MAXKMERLENGTH);
-    exit(EXIT_FAILURE);
-  } else if (kmer_length % 2 == 0) {
-    fprintf(stderr,"WARNING: Velour can't work with even length k-mers, such as %u.  Using k-mer length of %u instead.\n",
-	   kmer_length, kmer_length - 1);
-    kmer_length--;
-  }
-  return kmer_length;
+    if (kmer_length > MAXKMERLENGTH) {
+        fprintf(stderr,"ERROR: k-mer length of %u is larger than MAXKMERLENGTH of %u\n"
+                       "       please recompile and increase MAXKMERLENGTH in Makefile.\n", kmer_length, MAXKMERLENGTH);
+        exit(EXIT_FAILURE);
+    } else if (kmer_length % 2 == 0) {
+        fprintf(stderr,"ERROR: Velour requires an odd-length k-mer size, %u is even.\n", kmer_length);
+        exit(EXIT_FAILURE);
+    }
+    return kmer_length;
 }
 
-// parse minikmer length from string and correct it as necessary
+// parse minikmer length from string
 static inline unsigned
 getMiniKmerLength(char *h)
 {
@@ -152,24 +145,23 @@ getMiniKmerLength(char *h)
 #ifdef PART_MINIKMER_BITS
     unsigned limit = g__FULLKMER_LENGTH * 2;
     if (minikmer_length > limit) {
-        fprintf(stderr,"WARNING: mini k-mer bits cannot be larger than double the full k-mer length %u!  Using mini k-mer bits of %u instead.\n",
-            g__FULLKMER_LENGTH, limit);
-        minikmer_length = limit;
+        fprintf(stderr,"ERROR: mini k-mer bits of %u cannot be larger than double the full k-mer length %u\n",
+            minikmer_length, limit);
+        exit(EXIT_FAILURE);
     }
 #else
     unsigned limit = g__FULLKMER_LENGTH;
     if (minikmer_length > limit) {
-        fprintf(stderr,"WARNING: mini k-mers cannot be larger than the full k-mer length %u!  Using mini k-mer length of %u instead.\n",
-            g__FULLKMER_LENGTH, limit);
-        minikmer_length = limit;
+        fprintf(stderr,"ERROR: mini k-mer of %u cannot be larger than the full k-mer length %u\n",
+            minikmer_length, limit);
+        exit(EXIT_FAILURE);
     }
 #endif
 
 #ifdef PART_MIDDLE_MINIKMER
     if (minikmer_length % 2 == 0) {
-        fprintf(stderr,"WARNING: mini k-mers can't be of even length, such as %u.  Using mini k-mer length of %u instead.\n",
-            minikmer_length, minikmer_length-1);
-        -- minikmer_length;
+        fprintf(stderr,"ERROR: mini k-mers are required to be an odd-length, %u is even.\n", minikmer_length);
+        exit(EXIT_FAILURE);
     }
 #endif
 
@@ -226,9 +218,9 @@ parseCommandLine(int argc, char **argv)
 
   g__FULLKMER_LENGTH = getKmerLength(argv[2]);
 
-  g__PREGRAPH_FILENAME = static_cast<char *>( calloc((PATH_MAX+1), sizeof(char)) );
-  strcpy(g__PREGRAPH_FILENAME, g__WORK_BASE_DIRECTORY);
-  strcat(g__PREGRAPH_FILENAME, "/PreGraph");
+  p__PREGRAPH_FILENAME = static_cast<char *>( calloc((PATH_MAX+1), sizeof(char)) );
+  strcpy(p__PREGRAPH_FILENAME, g__WORK_BASE_DIRECTORY);
+  strcat(p__PREGRAPH_FILENAME, "/PreGraph");
 
   file_object_t current_entry;
   file_object_vector *work_to_do = new file_object_vector;
@@ -243,18 +235,30 @@ parseCommandLine(int argc, char **argv)
       // FILE FORMAT QUALIFIERS
       if (strcmp(argv[argIndex], "-fastq") == 0) {
 		  current_entry.filetype = FASTQ;
+          fprintf(stderr,"ERROR: Velour read format FASTQ not yet supported.\n");
+          exit(EXIT_FAILURE);
       } else if (strcmp(argv[argIndex], "-fasta") == 0) {
 		  current_entry.filetype = FASTA;
       } else if (strcmp(argv[argIndex], "-gerald") == 0) {
 		  current_entry.filetype = GERALD;
+          fprintf(stderr,"ERROR: Velour read format GERALD not yet supported.\n");
+          exit(EXIT_FAILURE);
       } else if (strcmp(argv[argIndex], "-eland") == 0) {
 		  current_entry.filetype = ELAND;
+          fprintf(stderr,"ERROR: Velour read format ELAND not yet supported.\n");
+          exit(EXIT_FAILURE);
       } else if (strcmp(argv[argIndex], "-fastq.gz") == 0) {
 		  current_entry.filetype = FASTQ_GZ;
+          fprintf(stderr,"ERROR: Velour read format FASTQ_GZ not yet supported.\n");
+          exit(EXIT_FAILURE);
       } else if (strcmp(argv[argIndex], "-fasta.gz") == 0) {
 		  current_entry.filetype = FASTA_GZ;
+          fprintf(stderr,"ERROR: Velour read format FASTA_GZ not yet supported.\n");
+          exit(EXIT_FAILURE);
       } else if (strcmp(argv[argIndex], "-maq.gz") == 0) {
 		  current_entry.filetype = MAQ_GZ;
+          fprintf(stderr,"ERROR: Velour read format MAQ_GZ not yet supported.\n");
+          exit(EXIT_FAILURE);
       }
       // CATEGORY QUALIFIERS
       else if (strcmp(argv[argIndex], "-short") == 0) {
@@ -311,7 +315,7 @@ parseCommandLine(int argc, char **argv)
       // PARTITIONING SPECIFIC
       else if (strcmp(argv[argIndex], "-part") == 0) {
             g__PARTITIONING = true;
-			g__SINGLEPASS = false;
+			p__SINGLEPASS = false;
             g__PSEUDO_NODES_PRESENT = true;
             g__PARTITION_COUNT = getNumPartitions(argv[++argIndex]);
             g__MINIKMER_LENGTH = getMiniKmerLength(argv[++argIndex]);
@@ -320,57 +324,22 @@ parseCommandLine(int argc, char **argv)
       } else if (strcmp(argv[argIndex], "-minfootprint") == 0) {
             g__MINIMIZE_FOOTPRINT = true;
       } else if (strcmp(argv[argIndex], "-loom") == 0) {
-            g__LOOMING = true;
-			g__SINGLEPASS = false;
+            p__LOOMING = true;
+			p__SINGLEPASS = false;
             g__PSEUDO_NODES_PRESENT = true;
             p__CLOBBER_WORK_DIRECTORY = false;
             current_entry.filetype = LOOM;
       } else if (strcmp(argv[argIndex], "-quilt") == 0) {
-            g__QUILTING = true;
-			g__SINGLEPASS = false;
+            p__QUILTING = true;
+			p__SINGLEPASS = false;
             g__PSEUDO_NODES_PRESENT = true;
             p__CLOBBER_WORK_DIRECTORY = false;
             current_entry.filetype = QUILT;
-      } else if (strcmp(argv[argIndex], "-split") == 0) {
-            g__SPLIT = true;
-			g__SINGLEPASS = false;
-            g__PSEUDO_NODES_PRESENT = true;
-            p__CLOBBER_WORK_DIRECTORY = false;
-            current_entry.filetype = QUILT;
-            g__PARTITION_COUNT = getNumPartitions(argv[++argIndex]);
-      } else if (strcmp(argv[argIndex], "-isplit") == 0) {
-            g__ISPLIT = true;
-			g__SINGLEPASS = false;
-            g__PSEUDO_NODES_PRESENT = true;
-            p__CLOBBER_WORK_DIRECTORY = false;
-            current_entry.filetype = QUILT;
-            g__PARTITION_COUNT = getNumPartitions(argv[++argIndex]);
-      } else if (strcmp(argv[argIndex], "-iesplit") == 0) {
-            g__ISPLIT = true;
-            g__IESPLIT = true;
-			g__SINGLEPASS = false;
-            g__PSEUDO_NODES_PRESENT = true;
-            p__CLOBBER_WORK_DIRECTORY = false;
-            current_entry.filetype = QUILT;
-            g__PARTITION_COUNT = getNumPartitions(argv[++argIndex]);
-      } else if (strcmp(argv[argIndex], "-ciesplit") == 0) {
-            g__CIESPLIT = true;
-			g__SINGLEPASS = false;
-            g__PSEUDO_NODES_PRESENT = true;
-            p__CLOBBER_WORK_DIRECTORY = false;
-            current_entry.filetype = QUILT;
-            g__PARTITION_COUNT = getNumPartitions(argv[++argIndex]);
       } else if (strcmp(argv[argIndex], "-bucket") == 0) {
             current_entry.filetype = BUCKET;
-      } else if (strcmp(argv[argIndex], "-combine") == 0) {
-            g__COMBINING = true;
-			g__SINGLEPASS = false;
-            g__PSEUDO_NODES_PRESENT = true;
-            p__CLOBBER_WORK_DIRECTORY = false;
-            current_entry.filetype = QUILT;
       } else if (strcmp(argv[argIndex], "-flow") == 0) {
-            g__FLOW = true;
-			g__SINGLEPASS = false;
+            p__FLOW = true;
+			p__SINGLEPASS = false;
             g__PSEUDO_NODES_PRESENT = true;
             p__CLOBBER_WORK_DIRECTORY = false;
             current_entry.filetype = LOOM;
@@ -382,10 +351,10 @@ parseCommandLine(int argc, char **argv)
       } else if (strcmp(argv[argIndex], "-noclip") == 0) {
             g__NO_TIP_CLIPPING = true;
       } else if (strcmp(argv[argIndex], "-pgpart") == 0) {
-            g__PGPART = true;
+            p__PGPART = true;
       } else if (strcmp(argv[argIndex], "-pgdist") == 0) {
-            g__PGDIST = true;
-			g__SINGLEPASS = false;
+            p__PGDIST = true;
+			p__SINGLEPASS = false;
             g__PGDIST_PARTITIONS = parseUnsigned(argv[++argIndex]);
             p__CLOBBER_WORK_DIRECTORY = false;
             current_entry.filetype = QUILT;
@@ -393,14 +362,14 @@ parseCommandLine(int argc, char **argv)
             g__PGDIST_FILTER = parseUnsigned(argv[++argIndex]);
             assert( g__PGDIST_FILTER < 38 ); // FIXME
       } else if (strcmp(argv[argIndex], "-cov_cutoff") == 0) {
-        g__COVCUTOFF_MIN = atof(argv[++argIndex]);
+            g__COVCUTOFF_MIN = atof(argv[++argIndex]);
       } else if (strcmp(argv[argIndex], "-max_coverage") == 0) {
-        g__COVCUTOFF_MAX = atof(argv[++argIndex]);
+            g__COVCUTOFF_MAX = atof(argv[++argIndex]);
       } else if (strcmp(argv[argIndex], "-bubble_removal") == 0) {
-        g__BUBBLE_POPPING = true;
+            g__BUBBLE_POPPING = true;
       }
 	  else {
-          fprintf(stderr, "Unknown option: '%s'\n", argv[argIndex]);
+          fprintf(stderr, "ERROR: Unknown option: '%s'\n", argv[argIndex]);
           exit(EXIT_FAILURE);
       }
 
@@ -411,7 +380,7 @@ parseCommandLine(int argc, char **argv)
     DIR *dir = opendir(argv[argIndex]);
     if (dir != NULL) { // TODO: support subdirectories???
       // if a directory, add all regular files to the input list
-      if( g__LOOMING ) {
+      if( p__LOOMING ) {
           fprintf(stderr, "ERROR: Can't '-loom' a directory (yet).  Exiting...\n");
           exit(1);
       }
@@ -441,7 +410,7 @@ parseCommandLine(int argc, char **argv)
       }
       closedir(dir);
     } else {
-      // else it's a filename                                                                   
+      // else it's a filename
       current_entry.filename = argv[argIndex];
       work_to_do->push_back(current_entry);
       current_entry.fileindex++;
@@ -449,8 +418,8 @@ parseCommandLine(int argc, char **argv)
   }
 
   // check input option combinations
-  if( g__PARTITIONING + g__LOOMING + g__SPLIT + g__ISPLIT + g__CIESPLIT + g__COMBINING + g__QUILTING > 1 ) {
-      fprintf(stderr, "Invalid combination of '-part' '-loom' '-combine' '-split,etc' and/or '-quilt'.  Exiting...\n");
+  if( g__PARTITIONING + p__LOOMING + p__FLOW + p__QUILTING > 1 ) {
+      fprintf(stderr, "Invalid combination of '-part' '-loom' '-flow' and/or '-quilt'.  Exiting...\n");
       exit(EXIT_FAILURE);
   }
 
@@ -464,34 +433,34 @@ parseCommandLine(int argc, char **argv)
 
 
 // writes command line arguments to log file
-static void 
+static void
 logInstructions(int argc, char **argv, char *directory) {
   int index;
   char *logFilename = (char *) malloc((PATH_MAX+1) * sizeof(char));
   FILE *logFile;
   time_t date;
   char *string;
-  
+
   time(&date);
   string = ctime(&date);
-  
+
   strcpy(logFilename, directory);
   strcat(logFilename, "/Log");
   logFile = fopen(logFilename, "a");
-  
+
   if (logFile == NULL) {
     printf("Could not open file %s, exiting...\n", logFilename);
     exit(EXIT_FAILURE);
   }
-  
+
   fprintf(logFile, "%s", string);
-  
+
   for (index = 0; index < argc; index++) {
     fprintf(logFile, " %s", argv[index]);
   }
 
   fprintf(logFile, "\n");
-  
+
   fclose(logFile);
   free(logFilename);
 }
@@ -518,7 +487,7 @@ makeDirectories(char *directory) {
 
     sprintf(buf, "%s/Log", directory);
     remove(buf);
-    
+
     free(buf);
     closedir(dir); // TODO: close even if no clobber
   }
@@ -608,366 +577,6 @@ void runLooming(file_object_vector *file_objects)
     sg_dump_quilt_from_kmergraph(g__KG_HASHTABLE, quilt_filename);
 }
 
-void runSplit(file_object_vector *file_objects)
-{
-    initializePartitionIndexFromInputFilename(file_objects);
-
-    // next, load the quilt file(s)
-    for(file_object_vector::iterator itr = file_objects->begin() ; itr != file_objects->end() ; ++itr) {
-        switch (itr->filetype) {
-            case BUCKET:
-                sg_load_bucket(g__SG_HASHTABLE, itr->filename);
-                break;
-            case QUILT:
-                sg_load_quilt(g__SG_HASHTABLE, itr->filename);
-                break;
-            default:
-                fprintf(stderr, "ERROR: Cannot use %s file %s as quilt input.  Exiting...\n",
-                        FILE_TYPES[itr->filetype], itr->filename);
-                exit(EXIT_FAILURE);
-        }
-    }
-
-    uintptr_t peak_nodes = g__SG_HASHTABLE->node_count;
-    printf("%"PRIuPTR" peak sequence nodes (bulk split).\n", peak_nodes);
-
-    if( g__FULL_STATISTICS ) {
-        sg_stat_components(g__SG_HASHTABLE, stdout);
-    }
-
-    if (g__DOTGRAPH) {
-        char dot_filename[PATH_MAX+1];
-        sprintf(dot_filename, "%s/Split-%u.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX);
-        emit_graphviz(g__SG_HASHTABLE, dot_filename);
-    }
-
-
-    if (file_objects->size() > 1) {
-#ifdef VERIFY
-        g__SG_HASHTABLE->verify();
-#endif
-        sg_remove_tips(g__SG_HASHTABLE);
-#ifdef VERIFY
-        g__SG_HASHTABLE->verify();
-#endif
-        sg_concatenate(g__SG_HASHTABLE);
-#ifdef VERIFY
-        g__SG_HASHTABLE->verify();
-#endif
-    }
-
-    if (g__DOTGRAPH) {
-        char dot_filename[PATH_MAX+1];
-        sprintf(dot_filename, "%s/Split-%u-simplify.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX);
-        emit_graphviz(g__SG_HASHTABLE, dot_filename);
-    }
-
-    if (g__SLICING) {
-        slice2_graph(g__SG_HASHTABLE, g__PARTITION_INDEX);
-        printf("%"PRIuPTR" nodes sliced out to final.\n", g__SLICE2_FINAL_NODE_COUNT);
-        printf("%"PRIuPTR" nodes sliced out to others.\n", g__SLICE2_NODE_COUNT);
-
-        if (g__DOTGRAPH) {
-            char dot_filename[PATH_MAX+1];
-            sprintf(dot_filename, "%s/Split-%u-sliced.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX);
-            emit_graphviz(g__SG_HASHTABLE, dot_filename);
-        }
-    }
-
-    // last, form components and emit to buckets
-    SplitBuckets *buckets = new SplitBuckets(false);
-    buckets->split(g__SG_HASHTABLE);
-    buckets->printStatistics();
-    delete buckets;
-}
-
-void runISplit(file_object_vector *file_objects)
-{
-    initializePartitionIndexFromInputFilename(file_objects);
-
-    // fully load the first file
-    file_object_vector::iterator itr = file_objects->begin();
-    assert(itr != file_objects->end());
-    switch (itr->filetype) {
-        case BUCKET:
-            sg_load_bucket(g__SG_HASHTABLE, itr->filename);
-            break;
-        case QUILT:
-            sg_load_quilt(g__SG_HASHTABLE, itr->filename);
-            break;
-        default:
-            fprintf(stderr, "ERROR: Cannot use %s file %s as quilt input.  Exiting...\n",
-                    FILE_TYPES[itr->filetype], itr->filename);
-            exit(EXIT_FAILURE);
-    }
-    ++itr;
-
-    // we just loaded the 'self' bucket, no simplification yet to do
-
-    if( g__FULL_STATISTICS ) {
-        sg_stat_components(g__SG_HASHTABLE, stdout);
-    }
-
-    uintptr_t self_nodes = g__SG_HASHTABLE->node_count;
-    uintptr_t ceiling = static_cast<uintptr_t>(1.2 * self_nodes); // TODO FIXME: want 1.2x of initial nodes, NOT self nodes -- maybe global value set during looming?
-
-    uintptr_t min_limit = static_cast<uintptr_t>(0.05 * self_nodes); // always load at least 5% of initial graph size
-    min_limit = (min_limit == 0 ? 1 : min_limit);
-
-    uintptr_t peak_nodes = g__SG_HASHTABLE->node_count;
-
-    uintptr_t total_bucket_nodes = 0;
-
-    SplitBuckets *buckets = new SplitBuckets(true);
-
-    // incrementally load the other files
-    for( ; itr != file_objects->end() ; ++itr) {
-        unsigned round = 1;
-        assert( itr->filetype == BUCKET );
-        int filedes = open(itr->filename, O_RDONLY);
-        FILE* file = fdopen(filedes, "r"); // FIXME: performance -- setbuffer() a larger buffer?
-        while(!feof(file)) {
-            printf("=== Incrementally loading INBOX bucket: Round %u ===\n", round);
-
-            uintptr_t limit;
-            if (g__IESPLIT && g__SG_HASHTABLE->node_count < ceiling) {
-                limit = ceiling - g__SG_HASHTABLE->node_count;
-            } else {
-                if (g__SG_HASHTABLE->node_count < (0.95 * peak_nodes)) {
-                    limit = peak_nodes - g__SG_HASHTABLE->node_count;
-                } else {
-                    limit = static_cast<uintptr_t>(1.1 * peak_nodes) - g__SG_HASHTABLE->node_count;
-                }
-            }
-            limit = max(limit, min_limit);
-
-            printf("%"PRIuPTR" nodes in working graph before loading from stream bucket.\n", g__SG_HASHTABLE->node_count);
-            printf("%"PRIuPTR" load limit.\n", limit);
-            total_bucket_nodes += sg_load_stream_bucket(g__SG_HASHTABLE, limit, file);
-            peak_nodes = max(peak_nodes, g__SG_HASHTABLE->node_count);
-
-            printf("%"PRIuPTR" nodes in working graph after loading from stream bucket.\n", g__SG_HASHTABLE->node_count);
-
-            if( g__FULL_STATISTICS ) {
-                sg_stat_components(g__SG_HASHTABLE, stdout);
-            }
-
-            if (g__DOTGRAPH) {
-                char dot_filename[PATH_MAX+1];
-                sprintf(dot_filename, "%s/SplitBucket-%u-%u.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX, round);
-                emit_graphviz(g__SG_HASHTABLE, dot_filename);
-            }
-
-#ifdef VERIFY
-            g__SG_HASHTABLE->verify();
-#endif
-            sg_remove_tips(g__SG_HASHTABLE);
-#ifdef VERIFY
-            g__SG_HASHTABLE->verify();
-#endif
-            sg_concatenate(g__SG_HASHTABLE);
-#ifdef VERIFY
-            g__SG_HASHTABLE->verify();
-#endif
-
-            if (g__DOTGRAPH) {
-                char dot_filename[PATH_MAX+1];
-                sprintf(dot_filename, "%s/SplitBucket-%u-%u-simplify.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX, round);
-                emit_graphviz(g__SG_HASHTABLE, dot_filename);
-            }
-
-            // emit sub-components that are no longer relevant to  
-            if (g__SLICING) {
-                slice2_graph(g__SG_HASHTABLE, g__PARTITION_INDEX);
-
-                if (g__DOTGRAPH) {
-                    char dot_filename[PATH_MAX+1];
-                    sprintf(dot_filename, "%s/SplitBucket-%u-%u-sliced.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX, round);
-                    emit_graphviz(g__SG_HASHTABLE, dot_filename);
-                }
-            }
-
-            // emit components that are no longer relevant to this partition
-            if (g__IESPLIT && !feof(file)) {
-                buckets->split(g__SG_HASHTABLE);
-            } else {
-                g__SG_HASHTABLE->resetFlags(); // XXX: redundant?
-            }
-
-            ++round;
-        }
-        fclose(file);
-    }
-
-    printf("%"PRIuPTR" peak sequence nodes (incremental split).\n", peak_nodes);
-    printf("%"PRIuPTR" total sequence nodes loaded from stream bucket(s).\n", total_bucket_nodes);
-
-    if (g__SLICING) {
-        printf("%"PRIuPTR" nodes sliced out to final.\n", g__SLICE2_FINAL_NODE_COUNT);
-        printf("%"PRIuPTR" nodes sliced out to others.\n", g__SLICE2_NODE_COUNT);
-    }
-
-    if( g__FULL_STATISTICS ) {
-        sg_stat_components(g__SG_HASHTABLE, stdout);
-    }
-
-    // last, form components and emit to buckets
-    buckets->split(g__SG_HASHTABLE);
-    buckets->printStatistics();
-    delete buckets;
-}
-
-void sg_serial_import_related_components(SeqGraph *working_graph, SeqGraph *resident_graph); // forward decl
-
-void runCIESplit(file_object_vector *file_objects)
-{
-    initializePartitionIndexFromInputFilename(file_objects);
-
-    // fully load the first file
-    file_object_vector::iterator itr = file_objects->begin();
-    assert(itr != file_objects->end());
-    switch (itr->filetype) {
-        case BUCKET:
-            sg_load_bucket(g__SG_HASHTABLE, itr->filename);
-            break;
-        case QUILT:
-            sg_load_quilt(g__SG_HASHTABLE, itr->filename);
-            break;
-        default:
-            fprintf(stderr, "ERROR: Cannot use %s file %s as quilt input.  Exiting...\n",
-                    FILE_TYPES[itr->filetype], itr->filename);
-            exit(EXIT_FAILURE);
-    }
-    ++itr;
-
-    // we just loaded the 'self' bucket, no simplification yet to do
-
-    if( g__FULL_STATISTICS ) {
-        sg_stat_components(g__SG_HASHTABLE, stdout);
-    }
-
-    uintptr_t peak_nodes = g__SG_HASHTABLE->node_count;
-
-    uintptr_t total_bucket_nodes = 0;
-
-    SeqGraph *g__WORK_GRAPH = new SeqGraph(PRIVATE_BUCKETS);
-
-    SplitBuckets *buckets = new SplitBuckets(true);
-
-    // incrementally load components from the other files
-    for( ; itr != file_objects->end() ; ++itr) {
-        unsigned round = 1;
-        assert( itr->filetype == BUCKET );
-        int filedes = open(itr->filename, O_RDONLY);
-        FILE* file = fdopen(filedes, "r"); // FIXME: performance -- setbuffer() a larger buffer?
-        while(!feof(file)) {
-
-            total_bucket_nodes += sg_load_stream_component(g__WORK_GRAPH, file);
-            peak_nodes = max(peak_nodes, g__SG_HASHTABLE->node_count + g__WORK_GRAPH->node_count);
-
-            sg_serial_import_related_components(g__WORK_GRAPH, g__SG_HASHTABLE);
-
-            if (g__DOTGRAPH) {
-                char dot_filename[PATH_MAX+1];
-                sprintf(dot_filename, "%s/SplitBucket-%u-%u-resident.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX, round);
-                emit_graphviz(g__SG_HASHTABLE, dot_filename);
-
-                char dot_filename2[PATH_MAX+1];
-                sprintf(dot_filename2, "%s/SplitBucket-%u-%u-work.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX, round);
-                emit_graphviz(g__WORK_GRAPH, dot_filename2);
-            }
-
-            /*if( g__FULL_STATISTICS ) {
-              sg_stat_components(g__WORK_GRAPH, stdout);
-              }*/
-
-#ifdef VERIFY
-            g__WORK_GRAPH->verify(true);
-#endif
-            sg_remove_tips(g__WORK_GRAPH, true);
-#ifdef VERIFY
-            g__WORK_GRAPH->verify(true);
-#endif
-            sg_concatenate(g__WORK_GRAPH, true);
-#ifdef VERIFY
-            g__WORK_GRAPH->verify(true);
-#endif
-
-            /*if (g__DOTGRAPH) {
-              char dot_filename[PATH_MAX+1];
-              sprintf(dot_filename, "%s/SplitBucket-%u-%u-simplify.dot", g__WORK_BASE_DIRECTORY, currentPartitionIndex, round);
-              emit_graphviz(g__WORK_GRAPH, dot_filename);
-              }*/
-
-            // emit sub-components that are no longer relevant to  
-            if (g__SLICING) {
-                slice2_graph(g__WORK_GRAPH, g__PARTITION_INDEX);
-
-                if (g__DOTGRAPH) {
-                    char dot_filename[PATH_MAX+1];
-                    sprintf(dot_filename, "%s/SplitBucket-%u-%u-worksliced.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX, round);
-                    emit_graphviz(g__WORK_GRAPH, dot_filename);
-                }
-            }
-
-            // emit components that are no longer relevant to the working graph
-            if (!feof(file)) {
-                buckets->split(g__WORK_GRAPH);
-            }
-
-            if (g__DOTGRAPH) {
-                char dot_filename[PATH_MAX+1];
-                sprintf(dot_filename, "%s/SplitBucket-%u-%u-resident-postemit.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX, round);
-                emit_graphviz(g__SG_HASHTABLE, dot_filename);
-
-                char dot_filename2[PATH_MAX+1];
-                sprintf(dot_filename2, "%s/SplitBucket-%u-%u-work-postemit.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX, round);
-                emit_graphviz(g__WORK_GRAPH, dot_filename2);
-            }
-
-            // move remaining nodes from working graph into resident graph
-            g__WORK_GRAPH->bulkMoveAllNodes(g__SG_HASHTABLE);
-            assert( g__WORK_GRAPH->node_count == 0 );
-
-            //g__SG_HASHTABLE->verify(true);
-
-            ++ round;
-        }
-        fclose(file);
-    }
-
-    printf("%"PRIuPTR" peak sequence nodes (incremental split).\n", peak_nodes);
-    printf("%"PRIuPTR" total sequence nodes loaded from stream bucket(s).\n", total_bucket_nodes);
-
-    if (g__SLICING) {
-        printf("%"PRIuPTR" nodes sliced out to final.\n", g__SLICE2_FINAL_NODE_COUNT);
-        printf("%"PRIuPTR" nodes sliced out to others.\n", g__SLICE2_NODE_COUNT);
-    }
-
-    /*if( g__FULL_STATISTICS ) {
-      sg_stat_components(g__SG_HASHTABLE, stdout);
-      }*/
-
-    // last, form components and emit to buckets
-    buckets->split(g__SG_HASHTABLE);
-    buckets->printStatistics();
-    delete buckets;
-}
-
-void runCombine(file_object_vector *file_objects)
-{
-    initializePartitionIndexFromInputFilename(file_objects);
-
-    char filename[PATH_MAX+1];
-    strncpy(filename, file_objects->front().filename, PATH_MAX);
-    filename[PATH_MAX] = '\0';
-
-    char *end = strstr(filename, ".quilt");
-    strcpy(end, ".combined.quilt");
-    quilt_files(g__SG_HASHTABLE, *file_objects);
-    sg_dump_quilt(g__SG_HASHTABLE, filename);
-}
-        
 void runQuilt(file_object_vector *file_objects)
 {
     g__PARTITION_INDEX = UINT_MAX; // TODO: should be g__PARTITION_COUNT+1
@@ -985,9 +594,9 @@ void runQuilt(file_object_vector *file_objects)
     fscanf(f, "%"SCNu64"", &g__READ_COUNT);
     fclose(f);
 
-    sg_dump_pregraph(g__SG_HASHTABLE, g__PREGRAPH_FILENAME);
+    sg_dump_pregraph(g__SG_HASHTABLE, p__PREGRAPH_FILENAME);
 
-    if (g__PGPART) {
+    if (p__PGPART) {
         char metis_filename[PATH_MAX+1];
         sprintf(metis_filename, "%s/PreGraph.metis", g__WORK_BASE_DIRECTORY);
         pregraph_partitioning(g__SG_HASHTABLE, metis_filename);
@@ -1036,12 +645,12 @@ void runDirect(file_object_vector *file_objects)
       emit_graphviz(g__KG_HASHTABLE, dot_filename);
     }
 
-    if (g__PGPART) {
+    if (p__PGPART) {
         char quilt_filename[PATH_MAX+1];
         sprintf(quilt_filename, "%s/Direct.quilt", g__WORK_QUILT_DIRECTORY);
         sg_dump_quilt_from_kmergraph(g__KG_HASHTABLE, quilt_filename);
     } else {
-        sg_dump_pregraph_from_kmergraph(g__KG_HASHTABLE, g__PREGRAPH_FILENAME);
+        sg_dump_pregraph_from_kmergraph(g__KG_HASHTABLE, p__PREGRAPH_FILENAME);
     }
 }
 
@@ -1052,7 +661,7 @@ void runPregraphDistribution(file_object_vector *file_objects, SeqGraph *sgraph)
 //********************************************************************************
 //****************************    Main Program    ********************************
 //********************************************************************************
-int 
+int
 main(int argc, char **argv)
 {
     struct timeval wallclock_start_time;
@@ -1065,7 +674,7 @@ main(int argc, char **argv)
 */
 
   // parse the command line
-  // 
+  //
   if (argc < 4) {
     puts("velour - sequence assembly front-end");
     printf("Version %i.%i.%2.2i\n", VERSION_NUMBER, RELEASE_NUMBER, UPDATE_NUMBER);
@@ -1085,7 +694,7 @@ main(int argc, char **argv)
 #ifdef VERIFY
   printf("VERIFY enabled!\n");
 #endif
-  
+
   makeDirectories(g__WORK_BASE_DIRECTORY);
   logInstructions(argc, argv, g__WORK_BASE_DIRECTORY);
 
@@ -1152,9 +761,9 @@ main(int argc, char **argv)
   printf("%" PRIuPTR " hashtable buckets\n", buckets);
 
   if (!g__PARTITIONING) {
-    if( g__SINGLEPASS || g__LOOMING ) {
+    if( p__SINGLEPASS || p__LOOMING ) {
         g__KG_HASHTABLE = new KmerGraph(buckets);
-    } else if (g__FLOW) {
+    } else if (p__FLOW) {
         g__KG_HASHTABLE = new KmerGraph(buckets);
         g__SG_HASHTABLE = new SeqGraph(buckets);
     } else {
@@ -1163,7 +772,7 @@ main(int argc, char **argv)
   }
   g__KMERNODE_ALLOCATOR->set_kmergraph(g__KG_HASHTABLE);
   g__SEQNODE_ALLOCATOR->set_seqgraph(g__SG_HASHTABLE);
-  
+
   pid_t velour_pid = getpid();
   printf("process id %" PRIdMAX "\n", static_cast<intmax_t>(velour_pid));
 
@@ -1180,27 +789,19 @@ main(int argc, char **argv)
     signal(SIGINT, &printLinuxProcStatus);
 #endif*/
 
-    // 
+    //
     // PRIMARY FRONT-END ASSEMBLY CONTROL SEQUENCE
     //
 
     if (g__PARTITIONING) {
         runPartitioning(file_objects);
-    } else if (g__LOOMING) {
+    } else if (p__LOOMING) {
         runLooming(file_objects);
-    } else if (g__SPLIT) {
-        runSplit(file_objects);
-    } else if (g__ISPLIT) {
-        runISplit(file_objects);
-    } else if (g__CIESPLIT) {
-        runCIESplit(file_objects);
-    } else if (g__COMBINING) {
-        runCombine(file_objects);
-    } else if (g__QUILTING) {
+    } else if (p__QUILTING) {
         runQuilt(file_objects);
-    } else if (g__FLOW) {
+    } else if (p__FLOW) {
         runFlow(file_objects, g__KG_HASHTABLE, g__SG_HASHTABLE);
-    } else if (g__PGDIST) {
+    } else if (p__PGDIST) {
         runPregraphDistribution(file_objects, g__SG_HASHTABLE);
     } else {
         runDirect(file_objects);
@@ -1217,7 +818,7 @@ main(int argc, char **argv)
     printf("%lld seconds TBB TIME\n", (long long int)total_time.seconds());
 #endif
 */
-    
+
     struct timeval wallclock_stop_time;
     gettimeofday(&wallclock_stop_time, NULL);
     printf("%lld seconds WALL CLOCK TIME\n", (long long int)(wallclock_stop_time.tv_sec - wallclock_start_time.tv_sec));

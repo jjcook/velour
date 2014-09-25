@@ -108,7 +108,7 @@ DEBUG_LDFLAGS += $(ADD_LDFLAGS)
 ifneq ($(findstring g++,$(CXX)),)
   RECOGNIZED = "g++"
 
-  S_CXXFLAGS = -Wall -march=native -fno-strict-aliasing
+  S_CXXFLAGS = -Wall -Wno-array-bounds -march=native -fno-strict-aliasing
   S_CXX_BENCH = $(S_CXXFLAGS) -O3
   S_CXX_OPT   = $(S_CXXFLAGS) -O3 -g
   S_CXX_DEBUG = $(S_CXXFLAGS) -O0 -g3 -ggdb3 -fno-omit-frame-pointer
@@ -126,12 +126,11 @@ ifneq ($(findstring icpc,$(CXX)),)
   RECOGNIZED = "icpc"
 
   S_CXXFLAGS = -Wall -xHost -fno-exceptions -fno-rtti
-  S_CXXFLAGS += -shared-intel -shared-libgcc
   S_CXX_BENCH = $(S_CXXFLAGS) -O3 -ipo
   S_CXX_OPT   = $(S_CXXFLAGS) -O3 -g -ipo
   S_CXX_DEBUG = $(S_CXXFLAGS) -O0 -g -debug full -fno-omit-frame-pointer
 
-  S_LDFLAGS =
+  S_LDFLAGS = -shared-intel -shared-libgcc
   S_LD_BENCH = $(S_LDFLAGS)
   S_LD_OPT   = $(S_LDFLAGS)
   S_LD_DEBUG = $(S_LDFLAGS)

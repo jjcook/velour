@@ -16,8 +16,8 @@ static size_t p__peakKmerLiveMemory = 0;
 static size_t p__peakSeqLiveMemory = 0;
 size_t g__peakLiveMemory = 0;
 
-static size_t p__peakFragmentNodes = 0;
-static size_t p__peakFragmentMemory = 0;
+//static size_t p__peakFragmentNodes = 0;
+//static size_t p__peakFragmentMemory = 0;
 
 static uintptr_t p__preRedistributionSequenceNodes = 0;
 //static size_t p__preRedistributionSequenceNodeMemory = 0;
@@ -139,111 +139,6 @@ static uintptr_t ParallelCoopMemoizeComponent(GraphType *graph, NodeType *root, 
 }
 #endif // VELOUR_TBB
 
-namespace {
-struct lambda_serial_import_components {
-    lambda_serial_import_components(SeqGraph *working_graph, SeqGraph *resident_graph) :
-        working_graph(working_graph), resident_graph(resident_graph) {}
-    void operator()(SeqNode *node) {
-        for (int i = 0 ; i < 4 ; ++ i) {
-            // check on the left side
-            if (node->left_color[i] == g__PARTITION_INDEX) {
-                assert( node->left_count[i] != 0 );
-                SeqNode *next = resident_graph->findNextNode(node, i, GO_LEFT);
-                assert( next != NULL );
-                SerialComponent<SeqGraph, SeqNode> component(resident_graph, next);
-                if (!component.nodes_.empty()) { // empty if I already claimed it with another edge
-                    for (std::deque<SeqNode*>::iterator it=component.nodes_.begin(); it != component.nodes_.end(); ++it) {
-                        SeqNode *node = *it;
-                        resident_graph->removeNode(node);
-                        working_graph->insertNodeAndUpdateColors(node);
-                    }
-                }
-            }
-            // check on the right side
-            if (node->right_color[i] == g__PARTITION_INDEX) {
-                assert( node->right_count[i] != 0 );
-                SeqNode *next = resident_graph->findNextNode(node, i, GO_RIGHT);
-                assert( next != NULL );
-                SerialComponent<SeqGraph, SeqNode> component(resident_graph, next);
-                if (!component.nodes_.empty()) { // empty if I already claimed it with another edge
-                    for (std::deque<SeqNode*>::iterator it=component.nodes_.begin(); it != component.nodes_.end(); ++it) {
-                        SeqNode *node = *it;
-                        resident_graph->removeNode(node);
-                        working_graph->insertNodeAndUpdateColors(node);
-                    }
-                }
-            }
-        }
-    }
-  private:
-    SeqGraph *working_graph;
-    SeqGraph *resident_graph;
-};
-} // namespace: anonymous
-
-void sg_serial_import_related_components(SeqGraph *working_graph, SeqGraph *resident_graph)
-{
-    lambda_serial_import_components f(working_graph, resident_graph);
-    sg_for_each(working_graph, f);
-}
-
-uintptr_t sg_serial_chain_import_related_components(SeqNode *seed_chain, SeqGraph *source_graph, SeqNode **dest_chain)
-{
-    uintptr_t nodes_imported = 0;
-
-    SeqNode *iterator = seed_chain;
-    while (iterator != NULL) {
-        SeqNode *root = iterator;
-        for (int i = 0 ; i < 4 ; ++ i) {
-            // check on the left side
-            if (root->left_color[i] == g__PARTITION_INDEX) {
-                assert( root->left_count[i] != 0 );
-                SeqNode *next = source_graph->findNextNode(root, i, GO_LEFT);
-                if (next != NULL) {
-                    SerialComponent<SeqGraph, SeqNode> component(source_graph, next);
-                    if (!component.nodes_.empty()) { // empty if I already claimed it with another edge
-                        for (std::deque<SeqNode*>::iterator it=component.nodes_.begin(); it != component.nodes_.end(); ++it) {
-                            SeqNode *node = *it;
-                            source_graph->removeNode(node);
-
-                            // chain it
-                            node->head_next = *dest_chain;
-                            *dest_chain = node;
-                            ++ nodes_imported;
-                        }
-                    }
-                } else {
-                    // XXX: VERIFY that NULL target is in dest_chain -- as we expected to find it
-                }
-            }
-            // check on the right side
-            if (root->right_color[i] == g__PARTITION_INDEX) {
-                assert( root->right_count[i] != 0 );
-                SeqNode *next = source_graph->findNextNode(root, i, GO_RIGHT);
-                if (next != NULL) {
-                    SerialComponent<SeqGraph, SeqNode> component(source_graph, next);
-                    if (!component.nodes_.empty()) { // empty if I already claimed it with another edge
-                        for (std::deque<SeqNode*>::iterator it=component.nodes_.begin(); it != component.nodes_.end(); ++it) {
-                            SeqNode *node = *it;
-                            source_graph->removeNode(node);
-
-                            // chain it
-                            node->head_next = *dest_chain;
-                            *dest_chain = node;
-                            ++ nodes_imported;
-                        }
-                    }
-                } else {
-                    // XXX: VERIFY that NULL target is in dest_chain -- as we expected to find it
-                }
-            }
-        }
-        iterator = iterator->head_next;
-    }
-
-    return nodes_imported;
-}
-
 template<typename NodeList>
 uintptr_t sg_serial_chain_memoize_related_components(SeqNode *seed_chain, SeqGraph *source_graph, NodeList *nodelist)
 {
@@ -318,7 +213,7 @@ uintptr_t sg_parallel_chain_memoize_related_components(SeqNode *seed_chain, SeqG
 {
     tbb::atomic<uintptr_t> nodes_memoized;
     nodes_memoized = 0;
-    
+
     flow_nodelist_t input_nodelist;
 
     // XXX HACK FOR PARALLELISM: build vector that can be processed by parallel_for
@@ -334,157 +229,6 @@ uintptr_t sg_parallel_chain_memoize_related_components(SeqNode *seed_chain, SeqG
             lambda_parallel_memoize_components(source_graph, nodelist, nodes_memoized), tbb::auto_partitioner());
 
     return nodes_memoized;
-}
-#endif // VELOUR_TBB
-
-#ifdef VELOUR_TBB
-namespace {
-struct boundary_edge {
-    SeqNode    *node;
-    Nucleotide  nucleotide;
-    unsigned    direction;
-};
-
-typedef std::deque<boundary_edge> edgelist_t;
-
-typedef std::deque<SeqNode *> nodelist_t;
-
-void gdb_list_nodelist_seq(nodelist_t &nodelist)
-{
-    for (nodelist_t::iterator nit = nodelist.begin(); nit != nodelist.end(); ++nit) {
-        SeqNode *node = *nit;
-        printf("node: %p  claim_tid: %u\n", node, node->claim_tid);
-    }
-    fflush(stdout);
-}
-
-struct lambda_enumerateAdjacentBoundaryEdges {
-    lambda_enumerateAdjacentBoundaryEdges(edgelist_t &el) : edgelist(el) {}
-    void operator()(SeqNode *node) {
-        for (int i = 0 ; i < 4 ; ++ i) {
-            if (node->left_color[i] == g__PARTITION_INDEX) {
-                assert( node->left_count[i] != 0 );
-                boundary_edge b;
-                b.node = node;
-                b.nucleotide = i;
-                b.direction = GO_LEFT;
-                edgelist.push_back(b);
-            }
-            if (node->right_color[i] == g__PARTITION_INDEX) {
-                assert( node->right_count[i] != 0 );
-                boundary_edge b;
-                b.node = node;
-                b.nucleotide = i;
-                b.direction = GO_RIGHT;
-                edgelist.push_back(b);
-            }
-        }
-    }
-    private:
-      edgelist_t &edgelist;
-};
-} // namespace: anonymous
-
-static tbb::atomic<uintptr_t> component_counter; // hack to detect when NULL nodes might be available again
-
-static void unclaim_nodes(nodelist_t &nodelist)
-{
-    for (nodelist_t::iterator nit = nodelist.begin(); nit != nodelist.end(); ++nit) {
-        SeqNode *node = *nit;
-        //atomic_resetNodeClaimed(node);
-        ATOMIZE(node->claim_tid).compare_and_swap(ParallelComponent<SeqGraph,SeqNode>::UNCLAIMED, tls_thread_index);
-    }
-    nodelist.clear();
-}
-
-static bool atomic_claim_components(SeqGraph *resident_graph, SeqGraph *inbox_graph, edgelist_t &edgelist, nodelist_t &nodelist)
-{
-    uintptr_t old_component_counter = component_counter;
-
-    assert( nodelist.empty() );
-    for (edgelist_t::iterator eit = edgelist.begin() ; eit != edgelist.end() ; ++eit) {
-
-        boundary_edge edge = *eit;
-
-        bool claimed_component = false;
-        while(!claimed_component) {
-            SeqNode *next = resident_graph->atomic_findNextNode(edge.node, edge.nucleotide, edge.direction);
-
-            if (next != NULL) {
-                if (ATOMIC_LOAD(next->claim_tid) == tls_thread_index) { // already claimed by me
-                    claimed_component = true;
-                    continue;
-                }
-                ParallelComponent<SeqGraph, SeqNode> component(resident_graph, next);
-                if (!component.nodes_.empty()) { // successfully claimed component
-                    for (std::deque<SeqNode*>::iterator it=component.nodes_.begin(); it != component.nodes_.end(); ++it) {
-                        SeqNode *node = *it;
-                        //atomic_setNodeClaimed(node);
-                        nodelist.push_back(node);
-                    }
-                    claimed_component = true;
-                    continue;
-                } else { // didn't claim component
-                    if (ATOMIC_LOAD(*tls_thread_abort)) { // check if I should abort
-                        unclaim_nodes(nodelist);
-                        ATOMIC_STORE(*tls_thread_abort) = false; // reset abort flag
-                        return false;
-                    }
-                    threadid_t other_thread = ATOMIC_LOAD(next->claim_tid);
-                    if (other_thread > 0 && other_thread < tls_thread_index) { // abort other thread -- okay if false abort if claim changes
-                        if (ATOMIC_LOAD(*thread_aborts[other_thread]) == false) { // check if false to avoid cache-line ping-pong
-                            ATOMIC_STORE(*thread_aborts[other_thread]) = true;
-                        }
-                    }
-                }
-            } else if (inbox_graph->findNextNode(edge.node, edge.nucleotide, edge.direction) != NULL) { // already have it
-                claimed_component = true;
-                continue;
-            } else { // next == NULL -- unclaim all, wait for someone to finish, then restart
-                unclaim_nodes(nodelist);
-                while (component_counter == old_component_counter) { tbb::this_tbb_thread::yield(); }
-                if (ATOMIC_LOAD(*tls_thread_abort)) {
-                    ATOMIC_STORE(*tls_thread_abort) = false; // reset abort flag
-                }
-                return false;
-            }
-            if (ATOMIC_LOAD(*tls_thread_abort)) { // check if I should abort
-                    unclaim_nodes(nodelist);
-                    ATOMIC_STORE(*tls_thread_abort) = false; // reset abort flag
-                    return false;
-            }
-        }
-    }
-    return true;
-}
-
-
-uintptr_t sg_atomic_chain_import_related_components(SeqGraph *inbox_graph, SeqGraph *resident_graph, SeqNode **dest_chain)
-{
-    uintptr_t node_counter = 0;
-
-    edgelist_t edgelist;
-    lambda_enumerateAdjacentBoundaryEdges e(edgelist);
-    sg_for_each(inbox_graph, e);
-
-    nodelist_t nodelist;  // nodes of all components that have been claimed
-
-    ATOMIC_STORE(*tls_thread_abort) = false; // reset abort flag to avoid unrelated aborts
-
-    while(!atomic_claim_components(resident_graph, inbox_graph, edgelist, nodelist)) ; // retry until all components claimed
-
-    // remove nodes from the resident graph and insert in private graph
-    for (nodelist_t::iterator nit = nodelist.begin(); nit != nodelist.end(); ++nit) {
-        SeqNode *node = *nit;
-        assert( node->claim_tid == tls_thread_index );
-        resident_graph->atomic_removeNode(node);
-
-        node->head_next = *dest_chain;
-        *dest_chain = node;
-
-        ++ node_counter;
-    }
-    return node_counter;
 }
 #endif // VELOUR_TBB
 
@@ -544,7 +288,7 @@ static void flow_private_graph(SeqGraph *private_sgraph, SeqGraph *resident_sgra
       emit_graphviz(private_sgraph, dot_filename);
       }*/
 
-    // emit sub-components that are no longer relevant to  
+    // emit sub-components that are no longer relevant to
     if (g__SLICING) { slice2_graph(private_sgraph, g__PARTITION_INDEX); }
 
     /*if (g__DOTGRAPH) {
@@ -577,7 +321,7 @@ namespace {
     struct lambda_flowKmerComponent {
         lambda_flowKmerComponent(KmerGraph *kgraph, SplitBuckets *buckets, SeqGraph *resident_sgraph) :
             kgraph_(kgraph), buckets_(buckets), resident_sgraph_(resident_sgraph) {}
-        
+
         void operator()(KmerNode *seed) {
             if (isNodeDead<KmerNode>(seed)) return; // HACK
 
@@ -614,398 +358,7 @@ namespace {
             PrivateSeqGraphSet pgset;
 #endif
     };
-
-#ifdef VELOUR_TBB
-typedef struct inbox_token {
-    char * component_start;
-    size_t num_components;
-} inbox_token_t;
-
-class InboxLoadFilter : public tbb::filter
-{
-    public:
-        static const size_t n_buffer = 64;  // XXX: controls the concurrency level
-
-    private:
-        file_object_t **file_object_;
-
-        int filedes_;
-        off_t file_offset_;
-        char * file_mmap_;
-        size_t file_length_;
-
-        uintptr_t touch_total_;  // fool the optimizer
-
-        inbox_token_t buffer_[n_buffer];
-        size_t next_buffer_;
-
-        bool open_file()
-        {
-            /*if (filedes_ != -1) { // close current file
-                //if (file_length_ > 0) { FIXME FIXME FIXME can't munmap here
-                //    if (munmap(file_mmap_, file_length_) == -1) {
-                //        fprintf(stderr, "ERROR: failed to munmap file: %s\n", files_to_load_[file_index_].filename);
-                //        perror("REASON: ");
-                //        exit(EXIT_FAILURE);
-                //    }
-                //}
-                if (close(filedes_) == -1) {
-                    fprintf(stderr, "ERROR: failed to close file: %s\n", files_object_.filename);
-                    perror("REASON: ");
-                    exit(EXIT_FAILURE);
-                }
-                filedes_ = -1;
-            }*/
-
-            file_offset_ = 0;   // reset offset
-
-            if ((*file_object_)->filetype != BUCKET) {
-                fprintf(stderr, "ERROR: Cannot use %s file %s as flow input.  Exiting...\n",
-                    FILE_TYPES[(*file_object_)->filetype], (*file_object_)->filename);
-                exit(EXIT_FAILURE);
-            }
-
-            filedes_ = open((*file_object_)->filename, O_RDONLY);
-            if (filedes_ == -1) {
-                fprintf(stderr, "ERROR: failed to open file: %s\n", (*file_object_)->filename);
-                perror("REASON: ");
-                exit(EXIT_FAILURE);
-            }
-
-            struct stat file_stat;
-            if (fstat(filedes_, &file_stat) != 0) {
-                fprintf(stderr,"ERROR: failed to stat file: %s\n", (*file_object_)->filename);
-                exit(EXIT_FAILURE);
-            }
-
-            file_length_ = file_stat.st_size;
-            (*file_object_)->length = file_stat.st_size;
-            
-            if (file_length_ == 0) { // otherwise, mmap will fail
-                return false;
-            }
-
-            file_mmap_ = static_cast<char *>( mmap( 0, file_length_, PROT_READ, MAP_PRIVATE, filedes_, 0) );
-            if (file_mmap_ == reinterpret_cast<char *>(-1)) {
-                fprintf(stderr, "ERROR: failed to mmap file: %s\n", (*file_object_)->filename);
-                perror("REASON: ");
-                exit(EXIT_FAILURE);
-            }
-
-            // TODO: walk the pages???
-
-            return true;
-        }
-
-    public:
-        InboxLoadFilter(file_object_t **inbox_file) : tbb::filter(serial_in_order),
-            file_object_(inbox_file), filedes_(-1), file_offset_(0),
-            file_mmap_(NULL), file_length_(0), touch_total_(0), next_buffer_(0)
-        { }
-
-        void* operator()(void* __dummy)
-        {
-            //printf("inbox-load %u\n", tls_thread_index); fflush(stdout);
-            if (file_offset_ >= file_length_) { // finished file or just starting file
-                if ((*file_object_) != NULL) {
-                    if (!open_file()) {
-                        return NULL;
-                    }
-                    (*file_object_) = NULL;
-                } else {
-                    // TODO TODO TODO : close and munmap file sometime
-                    return NULL;
-                }
-            }
-
-            inbox_token_t *buf = &buffer_[next_buffer_];
-            next_buffer_ = (next_buffer_ + 1) % n_buffer;
-
-            buf->component_start = &file_mmap_[file_offset_];
-            buf->num_components = 0;
-
-            // grab components and walk pages
-            off_t length_to_grab = min( 4*4*16384, (file_length_ - file_offset_));
-            assert( file_offset_ + length_to_grab <= file_length_ );
-                
-            //printf("buf %p length_to_grab = %zd\n", buf, length_to_grab);
-
-            while (length_to_grab > 0) {
-                size_t serialized_bytes;
-                memcpy(&serialized_bytes, (file_mmap_ + file_offset_), sizeof(size_t));
-                assert( serialized_bytes <= file_length_ - file_offset_ );
-
-                //printf("buf %p serialized_bytes = %zu\n", buf, serialized_bytes);
-
-                //printf("touching %u\n", tls_thread_index); fflush(stdout);
-                // touch the pages for the component
-                for (size_t touch = 0 ; touch < serialized_bytes ; touch += 4096) { // XXX: constant
-                    touch_total_ += file_mmap_[file_offset_ + touch];
-                }
-
-                ++ (buf->num_components);
-                file_offset_ += serialized_bytes;
-                length_to_grab -= serialized_bytes;
-            }
-            assert( buf->num_components > 0 );
-
-            //printf("buf %p component_start = %p\n", buf, buf->component_start);
-            //printf("buf %p  num_components = %zu\n", buf, buf->num_components);
-            //printf("buf %p next_component  = %p\n", buf, file_mmap_ + file_offset_);
-            //fflush(stdout);
-            return buf;
-        }
-};
-
-class InboxProcessFilter : public tbb::filter
-{
-    public:
-        InboxProcessFilter(SeqGraph *resident_sgraph, SplitBuckets *buckets,
-            tbb::atomic<uintptr_t> &peak_nodes,tbb::atomic<uintptr_t> &total_bucket_nodes) :
-            tbb::filter(parallel), resident_sgraph(resident_sgraph), buckets(buckets),
-            peak_nodes(peak_nodes), total_bucket_nodes(total_bucket_nodes) {}
-
-        void * operator()(void *item)
-        {
-            inbox_token_t& token = * static_cast<inbox_token_t *>(item);
-
-            char * next_component_start = token.component_start;
-
-            size_t components_left = token.num_components;
-
-            while (components_left > 0) {
-                SeqNode *inbox_chain = NULL;
-                SeqNode *import_chain = NULL;
-
-                uintptr_t inbox_components = 0;
-                uintptr_t inbox_nodes = 0;
-                while (components_left > 0 && inbox_nodes < (100000 / 2)) { // XXX: configurable constant
-                    size_t component_size;
-                    uintptr_t inbox_chain_length = sg_load_mmap_stream_component(next_component_start, &component_size, &inbox_chain);
-                    next_component_start += component_size;
-                    ++ inbox_components;
-                    inbox_nodes += inbox_chain_length;
-
-                    // NOTE: can't atomic import components here
-
-                    -- components_left;
-                }
-
-                // TODO: peak nodes
-                //uintptr_t new_peak = max(old_peak, resident_sgraph->node_count + private_sgraph->node_count);
-
-                SeqGraph *inbox_sgraph = tls_private_sgraph_set->GetPrivateGraph(inbox_nodes);
-                assert( inbox_sgraph->node_count == 0 );
-
-                while (inbox_chain != NULL) {
-                    SeqNode *node = inbox_chain;
-                    inbox_chain = inbox_chain->head_next;
-                    node->head_next = NULL; // XXX: needed?
-                    inbox_sgraph->insertNodeAndUpdateColors(node); // XXX: updating colors too since multiple components!
-                }
-                assert( inbox_chain == NULL );
-
-                uintptr_t import_chain_length = sg_atomic_chain_import_related_components(inbox_sgraph, resident_sgraph, &import_chain);
-
-                uintptr_t total_private_nodes = inbox_nodes + import_chain_length;
-                SeqGraph *private_sgraph = tls_private_sgraph_set->GetPrivateGraph(total_private_nodes);
-
-                if (private_sgraph != inbox_sgraph) {
-                    assert( private_sgraph->node_count == 0 );
-                    inbox_sgraph->bulkMoveAllNodes(private_sgraph);
-                }
-
-                // then, add imported nodes and fixup colors
-                while (import_chain != NULL) {
-                    SeqNode *node = import_chain;
-                    import_chain = import_chain->head_next;
-                    node->head_next = NULL; // XXX: needed?
-                    private_sgraph->insertNodeAndUpdateColors(node);
-                }
-
-                uintptr_t round = (token.num_components - components_left) + 1;
-                flow_private_graph(private_sgraph, resident_sgraph, buckets, round);
-                assert( private_sgraph->node_count == 0 );
-
-                component_counter.fetch_and_add(inbox_components);
-            }
-
-            return NULL;
-        }
-    private:
-        SeqGraph *resident_sgraph;
-        SplitBuckets *buckets;
-        tbb::atomic<uintptr_t> &peak_nodes;
-        tbb::atomic<uintptr_t> &total_bucket_nodes;
-};
-
-void parallel_process_inbox(file_object_vector &inbox_file_objects, SeqGraph *resident_sgraph, SplitBuckets *buckets,
-        uintptr_t &peak_nodes, uintptr_t &total_bucket_nodes)
-{
-    tbb::tick_count time0, time1;
-    tbb::pipeline pipeline;
-
-    file_object_t *current_inbox = NULL;
-
-    printf("  parallel inbox: %zu tokens\n", InboxLoadFilter::n_buffer); fflush(stdout);
-
-    time0 = tbb::tick_count::now();
-
-    InboxLoadFilter lf(&current_inbox);
-    pipeline.add_filter( lf );
-
-    tbb::atomic<uintptr_t> atomic_peak_nodes;
-    atomic_peak_nodes = peak_nodes;
-    tbb::atomic<uintptr_t> atomic_total_bucket_nodes;
-    atomic_total_bucket_nodes = total_bucket_nodes;
-
-    InboxProcessFilter pf(resident_sgraph, buckets, atomic_peak_nodes, atomic_total_bucket_nodes);
-    pipeline.add_filter( pf );
-
-    // run the pipeline for each inbox file, since multiple inboxes can't in general be run in parallel
-    for (file_object_vector::iterator it=inbox_file_objects.begin(); it != inbox_file_objects.end(); ++it) {
-        current_inbox = &(*it);
-        printf("    flowing inbox: %s\n", it->filename); fflush(stdout);
-        pipeline.run( InboxLoadFilter::n_buffer );
-    }
-
-    time1 = tbb::tick_count::now();
-    
-    peak_nodes = atomic_peak_nodes;
-    total_bucket_nodes = atomic_total_bucket_nodes;
-
-    tbb::tick_count::interval_t loom_time = time1 - time0;
-
-    printf("  inbox time: %lfs\n", loom_time.seconds()); fflush(stdout);
-}
-#endif // VELOUR_TBB
-
 } // namespace: anonymous
-    
-void serial_process_inbox(file_object_vector &inbox_file_objects, SeqGraph *resident_sgraph, SplitBuckets *buckets,
-        uintptr_t &peak_nodes, uintptr_t &total_bucket_nodes)
-{
-    if (!inbox_file_objects.empty()) { // no inbox for the first partition
-
-        PrivateSeqGraphSet psg_set;
-
-        // incrementally load components from the inbox files
-        for (file_object_vector::iterator itr=inbox_file_objects.begin() ; itr != inbox_file_objects.end() ; ++itr) {
-            if (itr->filetype != BUCKET) {
-                fprintf(stderr, "ERROR: Cannot use %s file %s as flow input.  Exiting...\n",
-                    FILE_TYPES[itr->filetype], itr->filename);
-                exit(EXIT_FAILURE);
-            }
-
-            printf("    flowing inbox: %s\n", itr->filename); fflush(stdout);
-            int filedes = open(itr->filename, O_RDONLY);
-            if (filedes == -1) {
-                fprintf(stderr, "ERROR: failed to open file: %s\n", itr->filename);
-                perror("REASON: ");
-                exit(EXIT_FAILURE);
-            }
-
-            struct stat file_stat;
-            if (fstat(filedes, &file_stat) != 0) {
-                fprintf(stderr,"ERROR: failed to stat file: %s\n", itr->filename);
-                exit(EXIT_FAILURE);
-            }
-
-            size_t file_length = file_stat.st_size;
-            //itr->length = file_stat.st_size;
-
-            if (file_length == 0) continue;  // otherwise, mmap will fail
-
-            char *file_mmap = static_cast<char *>( mmap( 0, file_length, PROT_READ, MAP_PRIVATE, filedes, 0) );
-            if (file_mmap == reinterpret_cast<char *>(-1)) {
-                fprintf(stderr, "ERROR: failed to mmap file: %s\n", itr->filename);
-                perror("REASON: ");
-                exit(EXIT_FAILURE);
-            }
-
-            size_t file_offset = 0;
-
-            uintptr_t round = 1;
-            while (file_offset < file_length) {
-                SeqNode *bulk_inbox_chain = NULL;
-                SeqNode *import_chain = NULL;
-
-                uintptr_t round_inbox_nodes = 0;
-                uintptr_t round_import_nodes = 0;
-                uintptr_t total_private_nodes = 0;
-                while (file_offset < file_length && total_private_nodes < 100000) { // XXX: configurable parameter
-
-                    SeqNode *inbox_chain = NULL;
-                    size_t component_size;
-                    uintptr_t inbox_chain_length = sg_load_mmap_stream_component((file_mmap+file_offset), &component_size, &inbox_chain);
-                    file_offset += component_size;
-                    total_bucket_nodes += inbox_chain_length;
-                    round_inbox_nodes += inbox_chain_length;
-
-                    peak_nodes = max(peak_nodes, resident_sgraph->node_count + inbox_chain_length);
-
-                    uintptr_t import_chain_length = sg_serial_chain_import_related_components(inbox_chain, resident_sgraph, &import_chain);
-
-                    total_private_nodes += inbox_chain_length + import_chain_length;
-                    round_import_nodes += import_chain_length;
-
-                    while (inbox_chain != NULL) {
-                        SeqNode *node = inbox_chain;
-                        inbox_chain = inbox_chain->head_next;
-                        node->head_next = bulk_inbox_chain;
-                        bulk_inbox_chain = node;
-                    }
-                }
-                //printf("(flow) inbox component nodes: %"PRIuPTR"\n", round_inbox_nodes); // XXX: remove me
-                //printf("(flow) inbox component related nodes: %"PRIuPTR"\n", round_import_nodes); fflush(stdout); // XXX: remove me
-
-                SeqGraph *private_sgraph = psg_set.GetPrivateGraph(total_private_nodes);
-                assert( private_sgraph->node_count == 0 );
-
-                // first, add inbox nodes
-                while (bulk_inbox_chain != NULL) {
-                    SeqNode *node = bulk_inbox_chain;
-                    bulk_inbox_chain = bulk_inbox_chain->head_next;
-                    node->head_next = NULL; // XXX: needed?
-                    private_sgraph->insertNodeAndUpdateColors(node); // XXX: updating colors too since multiple components!
-                }
-
-                // then, add imported nodes and fixup colors
-                while (import_chain != NULL) {
-                    SeqNode *node = import_chain;
-                    import_chain = import_chain->head_next;
-                    node->head_next = NULL; // XXX: needed?
-                    private_sgraph->insertNodeAndUpdateColors(node);
-                }
-
-                flow_private_graph(private_sgraph, resident_sgraph, buckets, round);
-                assert( private_sgraph->node_count == 0 );
-
-                ++ round;
-            }
-            
-            if (munmap(file_mmap, file_length) == -1) {
-                fprintf(stderr, "ERROR: failed to munmap file: %s\n", itr->filename);
-                perror("REASON: ");
-                exit(EXIT_FAILURE);
-            }
-
-            if (close(filedes) == -1) {
-                fprintf(stderr, "ERROR: failed to close file: %s\n", itr->filename);
-                perror("REASON: ");
-                exit(EXIT_FAILURE);
-            }
-        }
-
-        /*if( g__FULL_STATISTICS ) {
-          sg_stat_components(resident_sgraph, stdout);
-          }*/
-
-        // last, split the resident graph to outboxes // FIXME: should this be empty!?
-        assert( resident_sgraph->node_count == 0 );
-        //buckets->split(resident_sgraph);
-    }
-}
 
 void newflow_inbox(file_object_vector &inbox_file_objects, SeqGraph *resident_sgraph, SplitBuckets *buckets,
         uintptr_t &total_bucket_nodes)
@@ -1054,7 +407,7 @@ void newflow_inbox(file_object_vector &inbox_file_objects, SeqGraph *resident_sg
             }
 
             size_t file_offset = 0;
-                
+
             flow_nodelist_t flowlist;
 #ifdef VELOUR_TBB
             flowlist.reserve(1000000); // XXX: constant, should relate to value below
@@ -1293,7 +646,7 @@ void runFlow(file_object_vector *file_objects, KmerGraph *resident_kgraph, SeqGr
     loom_time = time1 - time0;
     printf("  loom time: %lfs\n", loom_time.seconds()); fflush(stdout);
 #endif // VELOUR_TBB
-    
+
     if (g__DOTGRAPH) {
       char dot_filename[PATH_MAX+1];
       sprintf(dot_filename, "%s/Flow-initial-kmergraph-%u.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX);
@@ -1308,14 +661,14 @@ void runFlow(file_object_vector *file_objects, KmerGraph *resident_kgraph, SeqGr
     if( g__FULL_STATISTICS ) {
         kg_stat_components(resident_kgraph, stdout);
     }
-    
+
     /*remove_tips(resident_kgraph);
     if (g__DOTGRAPH) {
       char dot_filename[PATH_MAX+1];
       sprintf(dot_filename, "%s/Flow-clipped-kmergraph-%u.dot", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX);
       emit_graphviz(resident_kgraph, dot_filename);
     }*/
-    
+
     //sg_dump_pregraph_from_kmergraph(resident_kgraph, "ResidentGraph-after-tipclip.pregraph");
 
     // XXX: allocate sequence graph here instead?
@@ -1358,7 +711,7 @@ void runFlow(file_object_vector *file_objects, KmerGraph *resident_kgraph, SeqGr
     // END BLOCK
 
     printf("FLOW: kmerGraph -> seqGraph phase finished.\n");  fflush(stdout);
-    
+
     // to compute initial reduction
     printf("%"PRIuPTR" total sequence nodes pre-redistribution (kmer flow).\n", p__preRedistributionSequenceNodes);
     //printf("%zu MB total sequence node memory pre-redistribution (kmer flow).\n", p__preRedistributionSequenceNodeMemory);
@@ -1418,8 +771,4 @@ void runFlow(file_object_vector *file_objects, KmerGraph *resident_kgraph, SeqGr
 
     outbox_buckets->printStatistics();
     delete outbox_buckets;
-
-    // TODO: when running with NDEBUG, delete this partition's inbox file
 }
-
-
