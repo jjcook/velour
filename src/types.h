@@ -31,6 +31,10 @@
 #define __STDC_FORMAT_MACROS
 #define __STDC_LIMIT_MACROS
 
+#ifdef VELOUR_MPI
+#  include <mpi.h>
+#endif
+
 #include <algorithm>
 #include <assert.h>
 #include <climits>
@@ -314,6 +318,7 @@ extern char *      g__WORK_QUILT_DIRECTORY;
 extern char *      g__WORK_INBOX_ROOT_DIRECTORY;
 extern unsigned    g__FULLKMER_LENGTH;
 extern unsigned    g__MINIKMER_LENGTH;
+extern bool        g__DIRECT_ASSEMBLY;
 extern bool        g__PARTITIONING;
 extern bool        g__LOOMING;
 extern bool        g__COMBINING;
@@ -321,6 +326,7 @@ extern bool        g__QUILTING;
 extern unsigned    g__PARTITION_COUNT;
 extern unsigned    g__PARTITION_INDEX;
 extern bool        g__PARTITION_NOEMIT;
+#define g__PARTITION_RANK() ((g__PARTITION_INDEX) - 1)
 extern bool        g__FULL_STATISTICS;
 
 extern bool        g__SLICING;

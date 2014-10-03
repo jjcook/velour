@@ -22,7 +22,21 @@
 ##     localhost$ cd builddir && make -C basedir
 ##
 
+####
+#### START OPTIONS
+####
+
 MAXKMERLENGTH=31
+
+COMPILER=gnu
+#COMPILER=intel
+
+#USE_TBB=true
+#USE_MPI=true
+
+####
+#### END OPTIONS
+####
 
 OSNAME=$(shell uname -s)
 ifeq ($(OSNAME),Darwin)
@@ -33,6 +47,23 @@ ifeq ($(OSNAME),Darwin)
   endif
 else
   ARCH=$(shell uname -p)
+endif
+
+ifndef CXX_OVERRIDE
+  ifeq ($(COMPILER),gnu)
+    ifdef USE_MPI
+      CXX=mpigxx
+    else
+      CXX=g++
+    endif
+  endif
+  ifeq ($(COMPILER),intel)
+    ifdef USE_MPI
+      CXX=mpiicpc
+    else
+      CXX=icpc
+    endif
+  endif
 endif
 
 ##
@@ -61,13 +92,13 @@ PARTITIONER_MIDDLE_MINIKMER='true'
 
 ## default compiler
 ##   to override: make CXX=g++-4.2
-ifeq ($(OSNAME),Darwin)
-  CXX=$(shell if [ ! -z `which g++-4.2` ] ; then echo g++-4.2 ; else echo g++ ; fi)
-  #CXX=icpc
-else
-  CXX=g++
-  #CXX=icpc
-endif
+#ifeq ($(OSNAME),Darwin)
+#  CXX=$(shell if [ ! -z `which g++-4.2` ] ; then echo g++-4.2 ; else echo g++ ; fi)
+#  #CXX=icpc
+#else
+#  CXX=g++ FIXME
+#  #CXX=icpc
+#endif
 
 ## generic compilation flags
 ##     to override: make CXXFLAGS="-Wall"
@@ -107,7 +138,11 @@ DEBUG_LDFLAGS += $(ADD_LDFLAGS)
 ##
 ifneq ($(findstring g++,$(CXX)),)
   RECOGNIZED = "g++"
-
+endif
+ifneq ($(findstring gxx,$(CXX)),)
+  RECOGNIZED = "g++"
+endif
+ifeq ($(RECOGNIZED),g++)
   S_CXXFLAGS = -Wall -Wno-array-bounds -march=native -fno-strict-aliasing
   S_CXX_BENCH = $(S_CXXFLAGS) -O3
   S_CXX_OPT   = $(S_CXXFLAGS) -O3 -g
@@ -121,7 +156,6 @@ endif
 
 ## Intel icc specific flags
 ##
-##  TODO: flags to later consider: align, no-prev-div
 ifneq ($(findstring icpc,$(CXX)),)
   RECOGNIZED = "icpc"
 
@@ -149,9 +183,14 @@ CODEPATH += -DMAXKMERLENGTH=$(MAXKMERLENGTH)
 CODEPATH += -DSMALL_NODES
 #CODEPATH += -DUNIQUE
 #CODEPATH += -DCOLOR_8BIT
-#CODEPATH += -DVELOUR_TBB
-#CODEPATH += -DVELOUR_TBB -DTBB_USE_DEBUG
-#CODEPATH += -DUSE_TBB_ALLOC
+  ifdef USE_MPI
+    CODEPATH += -DVELOUR_MPI
+  endif
+  ifdef USE_TBB
+    CODEPATH += -DVELOUR_TBB
+    #CODEPATH += -DVELOUR_TBB -DTBB_USE_DEBUG
+    #CODEPATH += -DUSE_TBB_ALLOC
+  endif
 #CODEPATH += -DUSE_LIBC_ALLOC
 #CODEPATH += -DVERIFY
 #CODEPATH += -DVERIFY_THREADSAFE

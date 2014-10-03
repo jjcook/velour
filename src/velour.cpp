@@ -68,8 +68,6 @@ class thread_index_observer : public tbb::task_scheduler_observer
 // command-line parameters and derived values
 //
 
-static bool p__CLOBBER_WORK_DIRECTORY = true;
-
 static bool        p__SINGLEPASS           = true;  // default: directly emit pregraph
 static char *      p__PREGRAPH_FILENAME    = NULL;
 
@@ -108,16 +106,13 @@ printUsage() {
   puts("    -loom");
   puts("    -flow");
   puts("    -quilt");
-  puts("    -break");
-  puts("");
-  puts("Outputs:");
-  puts("  - directory/PreGraph");
+  //puts("");
+  //puts("Outputs:");
+  //puts("  - directory/PreGraph");
   puts("");
 }
 
 unsigned parseUnsigned(char *h); // forward decl
-
-void initializePartitionIndexFromInputFilename(file_object_vector *file_objects); // forward decl
 
 // parse kmer_length from string
 static inline unsigned
@@ -211,10 +206,21 @@ parseCommandLine(int argc, char **argv)
 {
   assert( argc >= 4 );
 
-  g__WORK_BASE_DIRECTORY = argv[1];
-  g__WORK_LOOM_DIRECTORY = argv[1]; // TODO FIXME
-  g__WORK_QUILT_DIRECTORY = argv[1]; // TODO FIXME
-  g__WORK_INBOX_ROOT_DIRECTORY = argv[1]; // TODO FIXME
+  g__WORK_BASE_DIRECTORY = (char *) malloc((PATH_MAX+1) * sizeof(char));
+  assert(g__WORK_BASE_DIRECTORY != NULL);
+  sprintf(g__WORK_BASE_DIRECTORY, "%s", argv[1]);
+
+  g__WORK_LOOM_DIRECTORY = (char *) malloc((PATH_MAX+1) * sizeof(char));
+  assert(g__WORK_LOOM_DIRECTORY != NULL);
+  sprintf(g__WORK_LOOM_DIRECTORY, "%s/loom", g__WORK_BASE_DIRECTORY);
+
+  g__WORK_QUILT_DIRECTORY = (char *) malloc((PATH_MAX+1) * sizeof(char));
+  assert(g__WORK_QUILT_DIRECTORY != NULL);
+  sprintf(g__WORK_QUILT_DIRECTORY, "%s/quilt", g__WORK_BASE_DIRECTORY);
+
+  g__WORK_INBOX_ROOT_DIRECTORY = (char *) malloc((PATH_MAX+1) * sizeof(char));
+  assert(g__WORK_INBOX_ROOT_DIRECTORY != NULL);
+  sprintf(g__WORK_INBOX_ROOT_DIRECTORY, "%s/inbox", g__WORK_BASE_DIRECTORY);
 
   g__FULLKMER_LENGTH = getKmerLength(argv[2]);
 
@@ -230,6 +236,7 @@ parseCommandLine(int argc, char **argv)
   current_entry.cat = 0;
   current_entry.length = -1;
 
+  g__DIRECT_ASSEMBLY = true;
   for (int argIndex = 3; argIndex < argc; argIndex++) {
     if (argv[argIndex][0] == '-') {
       // FILE FORMAT QUALIFIERS
@@ -314,6 +321,7 @@ parseCommandLine(int argc, char **argv)
       }
       // PARTITIONING SPECIFIC
       else if (strcmp(argv[argIndex], "-part") == 0) {
+            g__DIRECT_ASSEMBLY = false;
             g__PARTITIONING = true;
 			p__SINGLEPASS = false;
             g__PSEUDO_NODES_PRESENT = true;
@@ -324,26 +332,35 @@ parseCommandLine(int argc, char **argv)
       } else if (strcmp(argv[argIndex], "-minfootprint") == 0) {
             g__MINIMIZE_FOOTPRINT = true;
       } else if (strcmp(argv[argIndex], "-loom") == 0) {
+            g__DIRECT_ASSEMBLY = false;
             p__LOOMING = true;
 			p__SINGLEPASS = false;
             g__PSEUDO_NODES_PRESENT = true;
-            p__CLOBBER_WORK_DIRECTORY = false;
             current_entry.filetype = LOOM;
+            g__PARTITION_COUNT = getNumPartitions(argv[++argIndex]);
+            g__PARTITION_INDEX = parseUnsigned(argv[++argIndex]);
       } else if (strcmp(argv[argIndex], "-quilt") == 0) {
+            g__DIRECT_ASSEMBLY = false;
             p__QUILTING = true;
 			p__SINGLEPASS = false;
             g__PSEUDO_NODES_PRESENT = true;
-            p__CLOBBER_WORK_DIRECTORY = false;
             current_entry.filetype = QUILT;
+            g__PARTITION_COUNT = getNumPartitions(argv[++argIndex]);
+            g__PARTITION_INDEX = g__PARTITION_COUNT + 1;
       } else if (strcmp(argv[argIndex], "-bucket") == 0) {
             current_entry.filetype = BUCKET;
       } else if (strcmp(argv[argIndex], "-flow") == 0) {
+            g__DIRECT_ASSEMBLY = false;
             p__FLOW = true;
 			p__SINGLEPASS = false;
             g__PSEUDO_NODES_PRESENT = true;
-            p__CLOBBER_WORK_DIRECTORY = false;
-            current_entry.filetype = LOOM;
+            //current_entry.filetype = LOOM;
             g__PARTITION_COUNT = getNumPartitions(argv[++argIndex]);
+#ifdef VELOUR_MPI
+            g__PARTITION_INDEX = 0;
+#else
+            g__PARTITION_INDEX = parseUnsigned(argv[++argIndex]);
+#endif
       } else if (strcmp(argv[argIndex], "-slice") == 0) {
             g__SLICING = true;
       } else if (strcmp(argv[argIndex], "-noslice") == 0) {
@@ -351,12 +368,13 @@ parseCommandLine(int argc, char **argv)
       } else if (strcmp(argv[argIndex], "-noclip") == 0) {
             g__NO_TIP_CLIPPING = true;
       } else if (strcmp(argv[argIndex], "-pgpart") == 0) {
+            g__DIRECT_ASSEMBLY = false;
             p__PGPART = true;
       } else if (strcmp(argv[argIndex], "-pgdist") == 0) {
+            g__DIRECT_ASSEMBLY = false;
             p__PGDIST = true;
 			p__SINGLEPASS = false;
             g__PGDIST_PARTITIONS = parseUnsigned(argv[++argIndex]);
-            p__CLOBBER_WORK_DIRECTORY = false;
             current_entry.filetype = QUILT;
       } else if (strcmp(argv[argIndex], "-pgfilter") == 0) {
             g__PGDIST_FILTER = parseUnsigned(argv[++argIndex]);
@@ -465,32 +483,49 @@ logInstructions(int argc, char **argv, char *directory) {
   free(logFilename);
 }
 
-// create the directory if it doesn't exist; if it exists blow away any old files
+// create the directory if it doesn't exist; otherwise exit
 void
-makeDirectories(char *directory) {
-  DIR *dir = opendir(directory);
-  if (dir == NULL) {  // TODO: create loom/etc subdirectories
-    mkdir(directory, 0777);
-  } else if( p__CLOBBER_WORK_DIRECTORY ) { // TODO FIXME: work subdirectory clobbering
-    assert( PATH_MAX > strlen(directory) + NAME_MAX );
-    char *buf = (char *) malloc((PATH_MAX+1) * sizeof(char));
-
-    struct dirent * ep;
-    while((ep = readdir(dir)) != NULL)
-      if( !strncmp(ep->d_name, "PreGraph", 8) ||
-          !strncmp(ep->d_name, "Graph", 5)    ||
-          !strncmp(ep->d_name, "Subsequences", 12)           ) // TODO
-      {
-        sprintf(buf, "%s/%s", directory, ep->d_name);
-        remove(buf);
-      }
-
-    sprintf(buf, "%s/Log", directory);
-    remove(buf);
-
-    free(buf);
-    closedir(dir); // TODO: close even if no clobber
-  }
+makeDirectories(void)
+{
+    DIR *dir = opendir(g__WORK_BASE_DIRECTORY);
+    if (dir == NULL) { // ensure the base directory does not exist
+        if( mkdir(g__WORK_BASE_DIRECTORY, 0777) == -1 ) {
+            fprintf(stderr, "ERROR: failed to make directory: %s\n", g__WORK_BASE_DIRECTORY);
+            perror("REASON: ");
+            exit(EXIT_FAILURE);
+        }
+        if( mkdir(g__WORK_LOOM_DIRECTORY, 0777) == -1 ) {
+            fprintf(stderr, "ERROR: failed to make directory: %s\n", g__WORK_LOOM_DIRECTORY);
+            perror("REASON: ");
+            exit(EXIT_FAILURE);
+        }
+        if( mkdir(g__WORK_QUILT_DIRECTORY, 0777) == -1 ) {
+            fprintf(stderr, "ERROR: failed to make directory: %s\n", g__WORK_QUILT_DIRECTORY);
+            perror("REASON: ");
+            exit(EXIT_FAILURE);
+        }
+        if( mkdir(g__WORK_INBOX_ROOT_DIRECTORY, 0777) == -1 ) {
+            fprintf(stderr, "ERROR: failed to make directory: %s\n", g__WORK_INBOX_ROOT_DIRECTORY);
+            perror("REASON: ");
+            exit(EXIT_FAILURE);
+        }
+        if( g__PARTITIONING ) {
+            // TODO: this should happen after partitioning should a non-fixed partition count method be used
+            for (unsigned i=1 ; i <= g__PARTITION_COUNT ; ++i) {
+                char directory[PATH_MAX+1];
+                sprintf(directory, "%s/%u", g__WORK_INBOX_ROOT_DIRECTORY, i);
+                if (mkdir(directory, 0777) == -1) {
+                    fprintf(stderr, "ERROR: failed to make directory: %s\n", directory);
+                    perror("REASON: ");
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
+    } else {
+        closedir(dir);
+        printf("Output directory already exists, exiting...\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 void printLinuxProcStatus(int signal)
@@ -557,9 +592,7 @@ void runPartitioning(file_object_vector *file_objects)
 
 void runLooming(file_object_vector *file_objects)
 {
-    initializePartitionIndexFromInputFilename(file_objects);
-
-    // next, load the subsequences into kmer graph
+    // load the subsequences into kmer graph
     load_loom_files(*file_objects);
 
     printf("%" PRIuPTR " kmer nodes built from Loom file(s)\n", g__KG_HASHTABLE->node_count);
@@ -569,11 +602,15 @@ void runLooming(file_object_vector *file_objects)
     }
 
     // then, optimize the kmer graph
-    remove_tips(g__KG_HASHTABLE);
+    remove_tips(g__KG_HASHTABLE);  // FIXME:  TBB version
 
     // last, concatenate directly to a quilt file
     char quilt_filename[PATH_MAX+1];
-    sprintf(quilt_filename, "%s/Partition-%u.quilt", g__WORK_QUILT_DIRECTORY, g__PARTITION_INDEX);
+    if (g__PARTITION_INDEX > g__PARTITION_COUNT) {
+        sprintf(quilt_filename, "%s/Partitions.quilt", g__WORK_QUILT_DIRECTORY);
+    } else {
+        sprintf(quilt_filename, "%s/Partition-%u.quilt", g__WORK_QUILT_DIRECTORY, g__PARTITION_INDEX);
+    }
     sg_dump_quilt_from_kmergraph(g__KG_HASHTABLE, quilt_filename);
 }
 
@@ -654,7 +691,7 @@ void runDirect(file_object_vector *file_objects)
     }
 }
 
-void runFlow(file_object_vector *file_objects, KmerGraph *resident_kgraph, SeqGraph *resident_sgraph); // forward decl
+void runFlow(KmerGraph *resident_kgraph, SeqGraph *resident_sgraph); // forward decl
 
 void runPregraphDistribution(file_object_vector *file_objects, SeqGraph *sgraph); // forward decl
 
@@ -683,6 +720,21 @@ main(int argc, char **argv)
   }
   file_object_vector *file_objects = parseCommandLine(argc, argv);
 
+#ifdef VELOUR_MPI
+  if (p__FLOW) {
+      MPI_Init(&argc, &argv);  // FIXME?  MPI_Init should be executed earlier, but how to only do for flowing?
+
+      int ranks;
+      MPI_Comm_size(MPI_COMM_WORLD, &ranks);
+      assert( ranks == g__PARTITION_COUNT );
+
+      int myrank;
+      MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+      g__PARTITION_INDEX = myrank + 1;
+      assert( g__PARTITION_RANK() == myrank );
+  }
+#endif
+
   if (g__MEMORY_FOOTPRINT_LIMIT == 0) { // not user specified
 #ifdef ARCH_64BIT
       g__MEMORY_FOOTPRINT_LIMIT = 2 * 1024 * 1024 * 1024ULL; // TODO: base on machine physical memory
@@ -695,7 +747,8 @@ main(int argc, char **argv)
   printf("VERIFY enabled!\n");
 #endif
 
-  makeDirectories(g__WORK_BASE_DIRECTORY);
+  if( g__PARTITIONING || g__DIRECT_ASSEMBLY )
+      makeDirectories();
   logInstructions(argc, argv, g__WORK_BASE_DIRECTORY);
 
   // initialization
@@ -800,7 +853,7 @@ main(int argc, char **argv)
     } else if (p__QUILTING) {
         runQuilt(file_objects);
     } else if (p__FLOW) {
-        runFlow(file_objects, g__KG_HASHTABLE, g__SG_HASHTABLE);
+        runFlow(g__KG_HASHTABLE, g__SG_HASHTABLE);
     } else if (p__PGDIST) {
         runPregraphDistribution(file_objects, g__SG_HASHTABLE);
     } else {
@@ -825,6 +878,12 @@ main(int argc, char **argv)
 
 #ifndef USE_TBB_ALLOC
     velour_alloc_done();
+#endif
+
+#ifdef VELOUR_MPI
+    if (p__FLOW) {
+        MPI_Finalize();
+    }
 #endif
 
     delete g__NODE_ALLOCATORS;

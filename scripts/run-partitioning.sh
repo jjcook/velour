@@ -9,6 +9,8 @@
 # Illinois Open Source License. See LICENSE.txt for details.
 #
 
+# TODO not updated or deleted
+
 set -o errexit
 set -o nounset
 
@@ -40,7 +42,7 @@ if [ -d "$WORK" ] ; then
     rm -f "$WORK/SUCCESS"
 fi
 
-mkdir -p "$WORK/work"
+mkdir -p "$WORK"
 
 echo "PART: Partitioning input..."
 set +o errexit

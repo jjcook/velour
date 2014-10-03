@@ -82,31 +82,16 @@ fi
 # get number of actual partitions created
 VELOUR_PARTITIONS=`cat $WORK/work/common.partitions`
 
-echo "PART: Flowing each partition..."
-for ((p=1; p <=$VELOUR_PARTITIONS; p++)) ; do
+echo "PART: Flowing partitions MPI parallel..."
 
   while true ; do
 
-  echo "PART:  partition $p of $VELOUR_PARTITIONS"
-  INBOXES=""
-  if [ $p -ne 1 ] ; then
-    for ((i=1; i < $p ; i++)) ; do
-        NEXT_INBOX="$WORK/work/inbox/$p/InboxBucket-from-$i.bucket"
-        INBOXES="${INBOXES} ${NEXT_INBOX}"
-    done
-    #du -ms $WORK/work/inbox-for-$p > "$WORK/du-inbox-for-$p.txt"
-    set +o errexit
-    $VELOUR "$WORK/work" $FULLK $OPTS -flow $VELOUR_PARTITIONS $p >& $WORK/flowing-$p.log
-    RETVAL=$?
-    set -o errexit
-  else
-    set +o errexit
-    $VELOUR "$WORK/work" $FULLK $OPTS -flow $VELOUR_PARTITIONS $p >& $WORK/flowing-$p.log
-    RETVAL=$?
-    set -o errexit
-  fi
+  set +o errexit
+  mpirun -l -n $VELOUR_PARTITIONS $VELOUR "$WORK/work" $FULLK $OPTS -flow $VELOUR_PARTITIONS >& $WORK/flowing-mpi.log
+  RETVAL=$?
+  set -o errexit
   if [ $RETVAL -ne 0 ] ; then
-    echo "Velour flowing of partition $p failed.  Exit code $RETVAL." >&2
+    echo "Velour MPI flowing failed.  Exit code $RETVAL." >&2
     if [ -z "$RETRY" ] ; then
         exit $RETVAL
     fi
@@ -116,6 +101,14 @@ for ((p=1; p <=$VELOUR_PARTITIONS; p++)) ; do
 
   done # end while loop
 
+for ((p=1; p <=$VELOUR_PARTITIONS; p++)) ; do
+  INBOXES=""
+  if [ $p -ne 1 ] ; then
+    for ((i=1; i < $p ; i++)) ; do
+        NEXT_INBOX="$WORK/work/inbox/$p/InboxBucket-from-$i.bucket"
+        INBOXES="${INBOXES} ${NEXT_INBOX}"
+    done
+  fi
   # flowing success for partition.  delete inputs.
   rm -f "$WORK/work/loom/Subsequences-$p.loom"  $INBOXES
 done
@@ -142,7 +135,7 @@ fi
 
 # quilting success.  delete final buckets.
 #rm -f "$WORK"/work/FinalBucket-from-*.bucket
-rmdir "$WORK"/work/inbox/* "$WORK"/work/inbox
+#rmdir "$WORK"/work/inbox/* "$WORK"/work/inbox
 
 # optionally, partition pregraph
 if [ $PREGRAPH_PARTITIONS -ne 0 ] ; then

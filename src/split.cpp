@@ -33,7 +33,7 @@ SplitBuckets::SplitBuckets(bool skipSelfBucket) :
     if (!skipSelfBucket)
     {
         char selfbucket_filename[PATH_MAX+1];
-        sprintf(selfbucket_filename, "%s/inbox-for-%u/SelfBucket-%u.bucket", g__WORK_INBOX_ROOT_DIRECTORY, g__PARTITION_INDEX, g__PARTITION_INDEX);
+        sprintf(selfbucket_filename, "%s/%u/SelfBucket-%u.bucket", g__WORK_INBOX_ROOT_DIRECTORY, g__PARTITION_INDEX, g__PARTITION_INDEX);
         int filedes = open(selfbucket_filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
         if (filedes == -1) {
             fprintf(stderr, "FAILED: open() of %s\n", selfbucket_filename);
@@ -58,7 +58,7 @@ SplitBuckets::SplitBuckets(bool skipSelfBucket) :
     // final bucket: truncate
     {
         char finalbucket_filename[PATH_MAX+1];
-        sprintf(finalbucket_filename, "%s/FinalBucket-from-%u.bucket", g__WORK_BASE_DIRECTORY, g__PARTITION_INDEX);
+        sprintf(finalbucket_filename, "%s/FinalBucket-from-%u.bucket", g__WORK_QUILT_DIRECTORY, g__PARTITION_INDEX);
         int filedes = open(finalbucket_filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
         if (filedes == -1) {
             fprintf(stderr, "FAILED: open() of %s\n", finalbucket_filename);
@@ -84,7 +84,7 @@ SplitBuckets::SplitBuckets(bool skipSelfBucket) :
     {
         for (unsigned i=g__PARTITION_INDEX+1; i <= g__PARTITION_COUNT ; ++i) {
             char inboxbucket_filename[PATH_MAX+1];
-            sprintf(inboxbucket_filename, "%s/inbox-for-%u/InboxBucket-from-%u.bucket", g__WORK_INBOX_ROOT_DIRECTORY, i, g__PARTITION_INDEX);
+            sprintf(inboxbucket_filename, "%s/%u/InboxBucket-from-%u.bucket", g__WORK_INBOX_ROOT_DIRECTORY, i, g__PARTITION_INDEX);
             int filedes = open(inboxbucket_filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
             if (filedes == -1) {
                 fprintf(stderr, "FAILED: open() of %s\n", inboxbucket_filename);

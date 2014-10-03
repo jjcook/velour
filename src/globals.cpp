@@ -38,6 +38,8 @@ char *      g__WORK_INBOX_ROOT_DIRECTORY = NULL; //  inbox root subdirectory
 unsigned    g__FULLKMER_LENGTH      = 0;
 unsigned    g__MINIKMER_LENGTH      = 0;
 
+bool        g__DIRECT_ASSEMBLY      = false;
+
 bool        g__PARTITIONING         = false;
 
 unsigned    g__PARTITION_COUNT      = 0;
@@ -91,47 +93,3 @@ unsigned parseUnsigned(char *h)
 
   return ((unsigned) long_value);
 }
-
-// extract partition index from input filename
-void initializePartitionIndexFromInputFilename(file_object_vector *file_objects)
-{
-    char filename[PATH_MAX+1];
-    strncpy(filename, file_objects->front().filename, PATH_MAX);
-    filename[PATH_MAX] = '\0';
- 
-    char *index_start = strrchr(filename, '-') + 1;  // increment to start at next character
-    if (index_start == NULL) {
-        fprintf(stderr, "ERROR: strrchr() of input filename\n");
-        assert(false);
-        exit(EXIT_FAILURE);
-    }
-
-    char *index_stop = strchr(index_start, '.');
-    if (index_stop == NULL) {
-        fprintf(stderr, "ERROR: strchr() of input filename\n");
-        assert(false);
-        exit(EXIT_FAILURE);
-    }
-    *index_stop = '\0';
-
-    g__PARTITION_INDEX = parseUnsigned(index_start);
-
-    printf("Current partition index: %u\n", g__PARTITION_INDEX);
-
-    // if the first partition, create the inbox subdirectories
-    if (g__PARTITION_INDEX == 1) {
-        for (unsigned i=1 ; i <= g__PARTITION_COUNT ; ++i) {
-            char directory[PATH_MAX+1];
-            sprintf(directory, "%s/inbox-for-%u", g__WORK_INBOX_ROOT_DIRECTORY, i);
-            if (mkdir(directory, 0777) == -1) {
-                if (errno != EEXIST) {
-                    fprintf(stderr, "ERROR: failed to make directory: %s\n", directory);
-                    perror("REASON: ");
-                    exit(EXIT_FAILURE);
-                }
-                // TODO: delete directory contents?
-            }
-        }
-    }
-}
-

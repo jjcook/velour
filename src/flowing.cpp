@@ -614,20 +614,17 @@ void newflow_inbox(file_object_vector &inbox_file_objects, SeqGraph *resident_sg
 #endif
 }
 
-void initializePartitionIndexFromInputFilename(file_object_vector *file_objects); // forward decl
-
-void runFlow(file_object_vector *file_objects, KmerGraph *resident_kgraph, SeqGraph *resident_sgraph)
+void runFlow(KmerGraph *resident_kgraph, SeqGraph *resident_sgraph)
 {
+    char loom_filename[PATH_MAX+1];
+    file_object_t next_file;
+
+    sprintf(loom_filename, "%s/Subsequences-%u.loom", g__WORK_LOOM_DIRECTORY, g__PARTITION_INDEX);
+    next_file.filetype = LOOM;
+    next_file.filename = loom_filename;
+
     file_object_vector loom_file_object;
-    loom_file_object.push_back( file_objects->front() );
-    assert( loom_file_object.front().filetype == LOOM );
-
-    file_object_vector inbox_file_objects = *file_objects; // duplicate
-    assert( inbox_file_objects.front().filetype == LOOM );
-    inbox_file_objects.erase( inbox_file_objects.begin() ); // erase loom file entry
-    assert( inbox_file_objects.empty() || inbox_file_objects.front().filetype == BUCKET );
-
-    initializePartitionIndexFromInputFilename(&loom_file_object);
+    loom_file_object.push_back(next_file);
 
 #ifdef VELOUR_TBB
     tbb::tick_count::interval_t loom_time;
@@ -733,6 +730,28 @@ void runFlow(file_object_vector *file_objects, KmerGraph *resident_kgraph, SeqGr
     resident_sgraph->verify(false);
 #endif
 
+#ifdef VELOUR_MPI
+    if (g__PARTITION_INDEX > 1) {
+        printf("MPI: Partition %u waiting for previous partitions to finish.\n", g__PARTITION_INDEX); fflush(stdout);
+        MPI_Status mpi_status;
+        unsigned mpi_wait;
+        int ret = MPI_Recv(&mpi_wait, 1, MPI_UNSIGNED, g__PARTITION_RANK()-1, MPI_ANY_TAG, MPI_COMM_WORLD, &mpi_status);
+        assert( ret == MPI_SUCCESS );
+    }
+#endif // VELOUR_MPI
+
+    file_object_vector inbox_file_objects;
+
+//#ifndef VELOUR_MPI
+    next_file.filetype = BUCKET;
+    for (unsigned i=1; i < g__PARTITION_INDEX; ++i) {
+        char *filename = (char *)malloc((PATH_MAX+1) * sizeof(char));
+        sprintf(filename, "%s/%u/InboxBucket-from-%u.bucket", g__WORK_INBOX_ROOT_DIRECTORY, g__PARTITION_INDEX, i);
+        next_file.filename = filename;
+        inbox_file_objects.push_back(next_file);
+    }
+//#endif // VELOUR_MPI
+
 #ifdef VELOUR_TBB
     newflow_inbox(inbox_file_objects, resident_sgraph, outbox_buckets, total_bucket_nodes); // XXX
     //parallel_process_inbox(inbox_file_objects, resident_sgraph, outbox_buckets, peak_nodes, total_bucket_nodes); 
@@ -771,4 +790,19 @@ void runFlow(file_object_vector *file_objects, KmerGraph *resident_kgraph, SeqGr
 
     outbox_buckets->printStatistics();
     delete outbox_buckets;
+
+    //delete inbox_file_objects; and free the filenames
+
+    // TODO: if MPI
+
+#ifdef VELOUR_MPI
+    if (g__PARTITION_INDEX < g__PARTITION_COUNT) {
+        printf("MPI: Partition %u signaling next partition to start.\n", g__PARTITION_INDEX); fflush(stdout);
+        MPI_Status mpi_status;
+        unsigned mpi_message = 1;
+        int ret = MPI_Send(&mpi_message, 1, MPI_UNSIGNED, g__PARTITION_RANK()+1, 0, MPI_COMM_WORLD);
+        assert( ret == MPI_SUCCESS );
+    }
+#endif // VELOUR_MPI
+
 }

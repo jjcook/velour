@@ -31,7 +31,7 @@ if [ -d "$WORK" ] ; then
 	rm -f "$WORK/SUCCESS"
 fi
 
-mkdir -p "$WORK/work"
+mkdir -p "$WORK"
 
 set +o errexit
 $VELOUR $WORK/work $FULLK $OPTS $INPUT >& $WORK/direct.log
