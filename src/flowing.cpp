@@ -22,6 +22,11 @@ size_t g__peakLiveMemory = 0;
 static uintptr_t p__preRedistributionSequenceNodes = 0;
 //static size_t p__preRedistributionSequenceNodeMemory = 0;
 
+#ifdef VELOUR_MPI
+static size_t *p__MPI_SAFE_LENGTH_ARRAY;
+MPI_Win g__MPI_WINDOW_SAFE_LENGTHS;
+#endif // VELOUR_MPI
+
 template<typename GraphType, typename NodeType, typename NodeList>
 static uintptr_t SerialMemoizeComponent(GraphType *graph, NodeType *root, NodeList *nodelist)
 {
@@ -380,7 +385,32 @@ void newflow_inbox(file_object_vector &inbox_file_objects, SeqGraph *resident_sg
                 exit(EXIT_FAILURE);
             }
 
+#ifdef VELOUR_MPI
+            unsigned inbox_partition = itr->fileindex;
+#endif // VELOUR_MPI
+
             printf("    flowing inbox: %s\n", itr->filename); fflush(stdout);
+
+            uintptr_t round = 1;
+            size_t file_offset = 0;
+
+#ifdef VELOUR_MPI
+            int producer_finished = 0;
+            size_t safe_length = 0;
+            do {
+            //if (safe_length < p__MPI_SAFE_LENGTH_ARRAY[inbox_partition])
+            //    printf("DBG: Partition %u read new safe_length %lli\n", g__PARTITION_INDEX, safe_length); fflush(stdout);
+            size_t new_safe_length = * static_cast<volatile size_t *>(&p__MPI_SAFE_LENGTH_ARRAY[inbox_partition]);
+            if (new_safe_length == safe_length) {
+                MPI_Status mpi_status;
+                MPI_Iprobe(PART_TO_RANK(inbox_partition), 42, MPI_COMM_WORLD, &producer_finished, &mpi_status);
+                // TODO: do MPI_Recv() on the message()
+                continue;
+            } else {
+                safe_length = new_safe_length;
+            }
+#endif // VELOUR_MPI
+
             int filedes = open(itr->filename, O_RDONLY);
             if (filedes == -1) {
                 fprintf(stderr, "ERROR: failed to open file: %s\n", itr->filename);
@@ -397,7 +427,31 @@ void newflow_inbox(file_object_vector &inbox_file_objects, SeqGraph *resident_sg
             size_t file_length = file_stat.st_size;
             //itr->length = file_stat.st_size;
 
-            if (file_length == 0) continue;  // otherwise, mmap will fail
+#ifdef VELOUR_MPI
+            file_length = min(file_length, safe_length);
+#endif
+
+            if (file_length == 0) { // otherwise, mmap will fail
+                if (close(filedes) == -1) {
+                    fprintf(stderr, "ERROR: failed to close file: %s\n", itr->filename);
+                    perror("REASON: ");
+                    exit(EXIT_FAILURE);
+                }
+#ifdef VELOUR_MPI
+                MPI_Status mpi_status;
+                MPI_Iprobe(PART_TO_RANK(inbox_partition), 42, MPI_COMM_WORLD, &producer_finished, &mpi_status);
+                if (producer_finished && safe_length == * static_cast<volatile size_t *>(&p__MPI_SAFE_LENGTH_ARRAY[inbox_partition])) {
+                    // TODO: do MPI_Recv() on the message()
+                    //printf("DBG: Partition %u producer finished break\n", g__PARTITION_INDEX); fflush(stdout);
+                    break; // break out of do loop to start next file
+                } else {
+                    //printf("DBG: Partition %u not finished continue\n", g__PARTITION_INDEX); fflush(stdout);
+                    continue; // continue do loop
+                }
+#else
+                continue; // continue to start next file
+#endif // VELOUR_MPI
+            }
 
             char *file_mmap = static_cast<char *>( mmap( 0, file_length, PROT_READ, MAP_PRIVATE, filedes, 0) );
             if (file_mmap == reinterpret_cast<char *>(-1)) {
@@ -406,14 +460,11 @@ void newflow_inbox(file_object_vector &inbox_file_objects, SeqGraph *resident_sg
                 exit(EXIT_FAILURE);
             }
 
-            size_t file_offset = 0;
-
             flow_nodelist_t flowlist;
 #ifdef VELOUR_TBB
             flowlist.reserve(1000000); // XXX: constant, should relate to value below
 #endif
 
-            uintptr_t round = 1;
             while (file_offset < file_length) {
                 uintptr_t round_inbox_nodes = 0;
                 uintptr_t round_import_nodes = 0;
@@ -580,6 +631,14 @@ void newflow_inbox(file_object_vector &inbox_file_objects, SeqGraph *resident_sg
                 perror("REASON: ");
                 exit(EXIT_FAILURE);
             }
+
+#ifdef VELOUR_MPI
+checkdone:
+            MPI_Status mpi_status;
+            MPI_Iprobe(PART_TO_RANK(inbox_partition), 42, MPI_COMM_WORLD, &producer_finished, &mpi_status);
+            // TODO: do MPI_Recv() on the message()
+            } while (!producer_finished || safe_length != * static_cast<volatile size_t *>(&p__MPI_SAFE_LENGTH_ARRAY[inbox_partition]));
+#endif // VELOUR_MPI
         }
 
         /*if( g__FULL_STATISTICS ) {
@@ -635,6 +694,21 @@ void runFlow(KmerGraph *resident_kgraph, SeqGraph *resident_sgraph)
     time0 = tbb::tick_count::now();
 #endif // VELOUR_TBB
 
+    SplitBuckets *outbox_buckets = new SplitBuckets(true);
+
+#ifdef VELOUR_MPI
+    MPI_Barrier(MPI_COMM_WORLD); // NOTE: barrier to ensure the SplitBuckets are all created (above)
+
+    MPI_Alloc_mem(g__PARTITION_COUNT * sizeof(size_t), MPI_INFO_NULL, &p__MPI_SAFE_LENGTH_ARRAY);
+    MPI_Win_create(p__MPI_SAFE_LENGTH_ARRAY, g__PARTITION_COUNT*sizeof(size_t), sizeof(size_t), MPI_INFO_NULL, MPI_COMM_WORLD, &g__MPI_WINDOW_SAFE_LENGTHS);
+
+    for (unsigned u=0; u < g__PARTITION_COUNT; ++u) {
+        p__MPI_SAFE_LENGTH_ARRAY[u] = 0;
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+#endif // VELOUR_MPI
+
     // next, load the subsequences into kmer graph
     load_loom_files(loom_file_object);
 
@@ -670,7 +744,6 @@ void runFlow(KmerGraph *resident_kgraph, SeqGraph *resident_sgraph)
 
     // XXX: allocate sequence graph here instead?
 
-    SplitBuckets *outbox_buckets = new SplitBuckets(true);
 
 #ifdef VELOUR_TBB
     tbb::tick_count time2, time3;
@@ -730,27 +803,17 @@ void runFlow(KmerGraph *resident_kgraph, SeqGraph *resident_sgraph)
     resident_sgraph->verify(false);
 #endif
 
-#ifdef VELOUR_MPI
-    if (g__PARTITION_INDEX > 1) {
-        printf("MPI: Partition %u waiting for previous partitions to finish.\n", g__PARTITION_INDEX); fflush(stdout);
-        MPI_Status mpi_status;
-        unsigned mpi_wait;
-        int ret = MPI_Recv(&mpi_wait, 1, MPI_UNSIGNED, g__PARTITION_RANK()-1, MPI_ANY_TAG, MPI_COMM_WORLD, &mpi_status);
-        assert( ret == MPI_SUCCESS );
-    }
-#endif // VELOUR_MPI
-
     file_object_vector inbox_file_objects;
 
-//#ifndef VELOUR_MPI
     next_file.filetype = BUCKET;
     for (unsigned i=1; i < g__PARTITION_INDEX; ++i) {
         char *filename = (char *)malloc((PATH_MAX+1) * sizeof(char));
         sprintf(filename, "%s/%u/InboxBucket-from-%u.bucket", g__WORK_INBOX_ROOT_DIRECTORY, g__PARTITION_INDEX, i);
         next_file.filename = filename;
+        next_file.fileindex = i; // MPI: record the inbox source partition index
+        next_file.length = 0; // MPI: memoize progress as we rotate through the inboxes
         inbox_file_objects.push_back(next_file);
     }
-//#endif // VELOUR_MPI
 
 #ifdef VELOUR_TBB
     newflow_inbox(inbox_file_objects, resident_sgraph, outbox_buckets, total_bucket_nodes); // XXX
@@ -793,16 +856,27 @@ void runFlow(KmerGraph *resident_kgraph, SeqGraph *resident_sgraph)
 
     //delete inbox_file_objects; and free the filenames
 
-    // TODO: if MPI
-
 #ifdef VELOUR_MPI
-    if (g__PARTITION_INDEX < g__PARTITION_COUNT) {
-        printf("MPI: Partition %u signaling next partition to start.\n", g__PARTITION_INDEX); fflush(stdout);
-        MPI_Status mpi_status;
-        unsigned mpi_message = 1;
-        int ret = MPI_Send(&mpi_message, 1, MPI_UNSIGNED, g__PARTITION_RANK()+1, 0, MPI_COMM_WORLD);
+    // signal completion to other partitions
+    unsigned consumer_count = 0;
+    unsigned mpi_message = 0; // NOTE: same message used in all Isend below
+    MPI_Request mpi_requests[g__PARTITION_COUNT+1];
+    MPI_Status  mpi_status[g__PARTITION_COUNT+1];
+
+    for (unsigned u=g__PARTITION_INDEX+1; u <= g__PARTITION_COUNT; ++u) {
+        int ret = MPI_Isend(&mpi_message, 1, MPI_UNSIGNED, PART_TO_RANK(u), 42, MPI_COMM_WORLD, &mpi_requests[consumer_count]);
         assert( ret == MPI_SUCCESS );
+        ++consumer_count;
     }
+    int ret = MPI_Waitall(consumer_count, mpi_requests, mpi_status);
+    assert( ret == MPI_SUCCESS );
+
+    // TODO: check the mpi_status?
+
+    MPI_Barrier(MPI_COMM_WORLD); // needed?
+
+    MPI_Win_free(&g__MPI_WINDOW_SAFE_LENGTHS);
+    MPI_Free_mem(p__MPI_SAFE_LENGTH_ARRAY);
 #endif // VELOUR_MPI
 
 }

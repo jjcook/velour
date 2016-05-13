@@ -16,7 +16,7 @@
 #NTHREADS=
 
 #KEEP_ALL_INTERMEDIATE_FILES=true
-#KEEP_PARTITIONED_SUBSEQUENCES=true
+KEEP_PARTITIONED_SUBSEQUENCES=true
 
 #RETRY=true
 #RESTART=1
@@ -137,10 +137,15 @@ if [ -z "$RESTART" ] ; then
     fi
 fi
 
+echo "VELOUR: Exiting after partitioning."
+exit 0
+
+# TODO: delete below...
+
 # get number of actual partitions created
 VELOUR_PARTITIONS=`cat "$WORK/work/common.partitions"`
 
-if [ -n "$RESTART" -a $RESTART -gt $VELOUR_PARTITIONS ] ; then
+if [ "$RESTART" -gt $VELOUR_PARTITIONS ] ; then
     echo "VELOUR: ERROR, RESTART=$RESTART is larger than the maximum partition index $VELOUR_PARTITIONS." >&2
     exit 1
 fi
@@ -209,19 +214,53 @@ for ((p=$START_INDEX; p <=$VELOUR_PARTITIONS; p++)) ; do
   fi
 done
 
-echo "VELOUR: Executing initial single-end assembly with coverage cutoff = 1.0"
-sh "$VELOUR_ROOT/covcutoff.sh" $WORK $FULLK $VELOUR_PARTITIONS $VELOUR_MEMORY 1.0
+# TODO: move these steps to the coverage cutoff script?
 
-#TODO: move this to a cleaning script?
+echo "VELOUR: Finishing single-end assembly, with no coverage cutoff..."
+FINALS=""
+for ((p=1; p <= $VELOUR_PARTITIONS; p++)) ; do
+  NEXT_FINAL="$WORK/work/quilt/FinalBucket-from-$p.bucket"
+  FINALS="${FINALS} ${NEXT_FINAL}"
+done
+set +o errexit
+#echo "        NOTE: Bubble removal ENABLED.  Single-end assembly does NOT require further finishing."
+#$VELOUR "$WORK/work" $FULLK $OPTS $THR -bubble_removal -quilt $VELOUR_PARTITIONS -bucket $FINALS >& $WORK/nocovcutoff.log
+echo "        WARNING: Bubble removal DISABLED.  Single-end assembly should be consumed by Velvet for further finishing."
+$VELOUR "$WORK/work" $FULLK $OPTS $THR -quilt $VELOUR_PARTITIONS -bucket $FINALS >& "$WORK/nocovcutoff.log"
+RETVAL=$?
+set -o errexit
+if [ $RETVAL -ne 0 ] ; then
+  echo "Velour single-end assembly finishing failed.  Exit code $RETVAL." >&2
+  exit $RETVAL
+fi
+
+mv "$WORK/work/PreGraph" "$WORK/work/PreGraph.wcov"
+
+echo "VELOUR: Generating node k-mer coverage database..."
+grep NODE "$WORK/work/PreGraph.wcov" | cut -f 3,5 | sort -n > "$WORK/nodekmercoverage.txt"
+
+echo "VELOUR: Computing length weighted median contig coverage..."
+HALF_LENGTH=`awk '{sum+=$1}END{printf "%d", sum/2}' "$WORK/nodekmercoverage.txt"`
+awk '{sum+=$1; if(sum >= $HALF_LENGTH) { printf "lwmcc           = %10.2f\n", $2; exit }}' "$WORK/nodekmercoverage.txt"
+
+# strip the coverage information to produce a Velvet-compatible format
+echo "VELOUR: Producing Velvet-compatible PreGraph file..."
+cat "$WORK/work/PreGraph.wcov" | sed 's/\(^NODE\t[0-9]\+\t[0-9]\+\).*/\1/g' > "$WORK/PreGraph"
+
+echo "VELOUR: Computing single-end assembly statistics, min contig length of 100..."
+$VELOUR_ROOT/contig_stats.pl -k $FULLK -m 100 "$WORK/PreGraph"
+
 # finishing success.  delete final buckets.
-#if [ -z "$KEEP_ALL_INTERMEDIATE_FILES" ] ; then
-#    rm -f "$WORK"/work/quilt/FinalBucket-from-*.bucket
-#fi
+if [ -z "$KEEP_ALL_INTERMEDIATE_FILES" ] ; then
+    rm -f "$WORK"/work/quilt/FinalBucket-from-*.bucket
+    rmdir "$WORK"/work/inbox/* "$WORK"/work/inbox
+fi
 
-echo "VELOUR: DONE assemble.sh"
+echo "VELOUR: Done."
 
 #
 # DONE!
 #
 
 touch "$WORK/SUCCESS"
+

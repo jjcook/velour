@@ -110,7 +110,7 @@ for ((p=1; p <=$VELOUR_PARTITIONS; p++)) ; do
     done
   fi
   # flowing success for partition.  delete inputs.
-  rm -f "$WORK/work/loom/Subsequences-$p.loom"  $INBOXES
+  #rm -f "$WORK/work/loom/Subsequences-$p.loom"  $INBOXES
 done
 
 echo "PART: Quilting final bucket..."

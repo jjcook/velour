@@ -730,7 +730,7 @@ main(int argc, char **argv)
 
       int myrank;
       MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
-      g__PARTITION_INDEX = myrank + 1;
+      g__PARTITION_INDEX = RANK_TO_PART(myrank);
       assert( g__PARTITION_RANK() == myrank );
   }
 #endif
@@ -749,7 +749,13 @@ main(int argc, char **argv)
 
   if( g__PARTITIONING || g__DIRECT_ASSEMBLY )
       makeDirectories();
-  logInstructions(argc, argv, g__WORK_BASE_DIRECTORY);
+
+#ifdef VELOUR_MPI
+  if (!p__FLOW || g__PARTITION_RANK() == 0) // FIXME
+    logInstructions(argc, argv, g__WORK_BASE_DIRECTORY);
+#else
+    logInstructions(argc, argv, g__WORK_BASE_DIRECTORY);
+#endif // VELOUR_MPI
 
   // initialization
   //

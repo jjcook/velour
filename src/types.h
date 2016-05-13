@@ -326,7 +326,13 @@ extern bool        g__QUILTING;
 extern unsigned    g__PARTITION_COUNT;
 extern unsigned    g__PARTITION_INDEX;
 extern bool        g__PARTITION_NOEMIT;
-#define g__PARTITION_RANK() ((g__PARTITION_INDEX) - 1)
+
+#ifdef VELOUR_MPI
+#  define PART_TO_RANK(i) ((i) - 1)
+#  define RANK_TO_PART(i) ((i) + 1)
+#  define g__PARTITION_RANK() (PART_TO_RANK(g__PARTITION_INDEX))
+#endif // VELOUR_MPI
+
 extern bool        g__FULL_STATISTICS;
 
 extern bool        g__SLICING;
@@ -344,6 +350,10 @@ extern double      g__COVCUTOFF_MIN;
 extern double      g__COVCUTOFF_MAX;
 
 extern bool        g__BUBBLE_POPPING;
+
+#ifdef VELOUR_MPI
+extern MPI_Win g__MPI_WINDOW_SAFE_LENGTHS;
+#endif // VELOUR_MPI
 
 #define KMER_APPEND(kmer, base, double_kmer_length)  \
   (((kmer) >> 2) | (((Kmer)(base)) << ((double_kmer_length) - 2)))

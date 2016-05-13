@@ -16,7 +16,7 @@ struct SplitBuckets
 {
     SplitBuckets(bool skipSelfBucket);
     ~SplitBuckets();
-  
+
     void split(SeqGraph *);
     void split_nodelist(SeqGraph *graph, flow_nodelist_t *nodelist);
 
@@ -24,9 +24,16 @@ struct SplitBuckets
     void resetStatistics();
 
   //private:
+    void openInboxBucketFile(unsigned target);
+    void closeInboxBucketFile(unsigned target);
+
     FILE *selfBucket;
     FILE *finalBucket;
     FILE **inboxBucket;
+
+#ifdef VELOUR_MPI
+    off_t *inboxBucketProgress;
+#endif // VELOUR_MPI
 
 #ifdef VELOUR_TBB
     tbb::queuing_mutex selfMutex;
@@ -40,6 +47,8 @@ struct SplitBuckets
 
     uintptr_t stat_maxRedistFinalComponentSize;
     uintptr_t stat_maxRedistInboxComponentSize;
+
+    size_t FILE_BUFFER_SIZE;
 };
 
 

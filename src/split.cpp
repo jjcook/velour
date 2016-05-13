@@ -12,6 +12,9 @@
 
 SplitBuckets::SplitBuckets(bool skipSelfBucket) :
     selfBucket(NULL), finalBucket(NULL), inboxBucket(new FILE *[g__PARTITION_COUNT+1]),
+#ifdef VELOUR_MPI
+    inboxBucketProgress(new off_t[g__PARTITION_COUNT+1]),
+#endif // VELOUR_MPI
 #ifdef VELOUR_TBB
     inboxMutex(new tbb::queuing_mutex [g__PARTITION_COUNT+1]),
 #endif // VELOUR_TBB
@@ -19,7 +22,7 @@ SplitBuckets::SplitBuckets(bool skipSelfBucket) :
     stat_maxRedistFinalComponentSize(0), stat_maxRedistInboxComponentSize(0)
 {
     // TODO: choose size more safely (allocator doesn't know about this) and more optimally
-    size_t FILE_BUFFER_SIZE = (g__MEMORY_FOOTPRINT_LIMIT >> 4) / g__PARTITION_COUNT;
+    FILE_BUFFER_SIZE = (g__MEMORY_FOOTPRINT_LIMIT >> 4) / g__PARTITION_COUNT;
     if (FILE_BUFFER_SIZE > 2*1024*1024UL) {
         FILE_BUFFER_SIZE = 2*1024*1024UL;
     }
@@ -83,27 +86,7 @@ SplitBuckets::SplitBuckets(bool skipSelfBucket) :
     // inbox buckets: truncate
     {
         for (unsigned i=g__PARTITION_INDEX+1; i <= g__PARTITION_COUNT ; ++i) {
-            char inboxbucket_filename[PATH_MAX+1];
-            sprintf(inboxbucket_filename, "%s/%u/InboxBucket-from-%u.bucket", g__WORK_INBOX_ROOT_DIRECTORY, i, g__PARTITION_INDEX);
-            int filedes = open(inboxbucket_filename, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-            if (filedes == -1) {
-                fprintf(stderr, "FAILED: open() of %s\n", inboxbucket_filename);
-                perror(NULL);
-                exit(EXIT_FAILURE);
-            }
-            FILE *fp = fdopen(filedes, "w");
-            if (fp == NULL) {
-                fprintf(stderr, "FAILED: fdopen() of %s\n", inboxbucket_filename);
-                perror(NULL);
-                exit(EXIT_FAILURE);
-            }
-            inboxBucket[i] = fp;
-
-            // configure buffer for writes
-            char * buffer = static_cast<char*>( malloc( FILE_BUFFER_SIZE ) );
-            if (buffer != NULL) {
-                setbuffer(fp, buffer, FILE_BUFFER_SIZE);
-            }
+            openInboxBucketFile(i);
         }
     }
 }
@@ -114,9 +97,7 @@ SplitBuckets::~SplitBuckets()
     if (selfBucket != NULL) { fclose(selfBucket); }
     if (finalBucket != NULL) { fclose(finalBucket); }
     for (unsigned i=g__PARTITION_INDEX+1; i <= g__PARTITION_COUNT ; ++i) {
-        if (inboxBucket[i] != NULL) {
-            fclose(inboxBucket[i]);
-        }
+        closeInboxBucketFile(i);
     }
 
     // deallocations
@@ -124,6 +105,9 @@ SplitBuckets::~SplitBuckets()
 #ifdef VELOUR_TBB
     delete [] inboxMutex;
 #endif // VELOUR_TBB
+#ifdef VELOUR_MPI
+    delete [] inboxBucketProgress;
+#endif // VELOUR_MPI
 }
 
 namespace {
@@ -133,6 +117,8 @@ struct lambda_split {
 
     void operator()(SeqNode *root) {
         SerialComponent<SeqGraph, SeqNode> component(graph, root); // forms the component
+
+        unsigned targetIdx = 0;
 
         FILE *targetBucket = NULL;
         uintptr_t *targetBucketCounter = NULL;
@@ -160,6 +146,8 @@ struct lambda_split {
             targetMutex = &sb->finalMutex;
 #endif
         } else {
+            targetIdx = component.get_min_frontier_index();
+
             targetMaxRedistComponentSize = &sb->stat_maxRedistInboxComponentSize;
             assert( component.get_min_frontier_index() > g__PARTITION_INDEX );
             assert( component.get_min_frontier_index() < (g__PARTITION_COUNT+1));
@@ -211,6 +199,16 @@ struct lambda_split {
             setNodeDead<SeqNode>(node); // causes node to be removed from graph and deallocated by the graph iterator
         }
         assert( serialized_bytes == component_bytes );
+
+#ifdef VELOUR_MPI
+        if (targetIdx != 0) {
+            sb->inboxBucketProgress[targetIdx] += component_bytes;
+            if (sb->inboxBucketProgress[targetIdx] > 10000000) { // XXX: constant
+                sb->closeInboxBucketFile(targetIdx); // implicit: MPI puts new offset
+                sb->openInboxBucketFile(targetIdx); // implicit: resets progress counter
+            }
+        }
+#endif // VELOUR_MPI
     }
   private:
     SeqGraph *graph;
@@ -280,3 +278,54 @@ void SplitBuckets::resetStatistics(void)
     stat_maxRedistInboxComponentSize = 0;
 }
 
+void SplitBuckets::openInboxBucketFile(unsigned target)
+{
+    char inboxbucket_filename[PATH_MAX+1];
+    sprintf(inboxbucket_filename, "%s/%u/InboxBucket-from-%u.bucket", g__WORK_INBOX_ROOT_DIRECTORY, target, g__PARTITION_INDEX);
+    int filedes = open(inboxbucket_filename, O_CREAT /*| O_TRUNC*/ | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+    if (filedes == -1) {
+        fprintf(stderr, "FAILED: open() of %s\n", inboxbucket_filename);
+        perror(NULL);
+        exit(EXIT_FAILURE);
+    }
+    FILE *fp = fdopen(filedes, "a");
+    if (fp == NULL) {
+        fprintf(stderr, "FAILED: fdopen() of %s\n", inboxbucket_filename);
+        perror(NULL);
+        exit(EXIT_FAILURE);
+    }
+    inboxBucket[target] = fp;
+
+    // configure buffer for writes
+    char * buffer = static_cast<char*>( malloc( FILE_BUFFER_SIZE ) );
+    if (buffer != NULL) {
+        setbuffer(fp, buffer, FILE_BUFFER_SIZE);
+    }
+
+#ifdef VELOUR_MPI
+    inboxBucketProgress[target] = 0;
+#endif // VELOUR_MPI
+}
+
+void SplitBuckets::closeInboxBucketFile(unsigned target)
+{
+    off_t eof_offset = 0;
+    if (inboxBucket[target] != NULL) {
+        eof_offset = ftello(inboxBucket[target]);
+        assert( eof_offset != -1 );
+
+        fclose(inboxBucket[target]);
+        inboxBucket[target] = NULL;
+    }
+
+#ifdef VELOUR_MPI
+    //assert( sizeof(off_t) == sizeof(long long int) );
+    if (eof_offset > 0) {
+        // send new file limit to target for reading
+        MPI_Win_lock(MPI_LOCK_EXCLUSIVE, PART_TO_RANK(target), 0, g__MPI_WINDOW_SAFE_LENGTHS); // FIXME: something more efficient than lock?
+        MPI_Put(&eof_offset, 1, MPI_LONG_LONG, PART_TO_RANK(target), g__PARTITION_INDEX, 1, MPI_LONG_LONG, g__MPI_WINDOW_SAFE_LENGTHS);
+        MPI_Win_unlock(PART_TO_RANK(target), g__MPI_WINDOW_SAFE_LENGTHS);
+        //printf("DBG: Partition %u MPI_Put to %u value %lli\n", g__PARTITION_INDEX, target, eof_offset); fflush(stdout);
+    }
+#endif // VELOUR_MPI
+}
